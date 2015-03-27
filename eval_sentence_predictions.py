@@ -102,6 +102,16 @@ def main(params):
     all_candidates.append(candidate)
 
     img_blob['candidate'] = {'text': candidate, 'logprob': float(top_prediction[0])}    
+
+    # Code to save all the other candidates 
+    candlist = []
+    for ci in xrange(len(top_predictions)-1):
+        prediction = top_predictions[ci+1] # these are sorted with highest on top
+        candidate = ' '.join([ixtoword[int(ix)] for ix in prediction[1] if ix > 0]) # ix 0 is the END token, skip that
+        candlist.append({'text': candidate, 'logprob': float(prediction[0])})
+    
+    img_blob['candidatelist'] = candlist
+
     blob['imgblobs'].append(img_blob)
 
   # use perl script to eval BLEU score for fair comparison to other research work
