@@ -62,7 +62,7 @@ def main(params):
     features = features_struct['feats'][:,idxes] # this is a 4096 x N numpy array of features
   else:
     features_struct = picsom_bin_data(features_path) 
-    features = np.array(features_struct.get_float(idxes)).T; # this is a 4096 x N numpy array of features
+    features = np.array(features_struct.get_float_list(idxes)).T; # this is a 4096 x N numpy array of features
     print "Working on Bin file now"
 
   D,NN = features.shape
@@ -111,6 +111,7 @@ def main(params):
         candlist.append({'text': candidate, 'logprob': float(prediction[0])})
     
     img_blob['candidatelist'] = candlist
+
 
     blob['imgblobs'].append(img_blob)
 

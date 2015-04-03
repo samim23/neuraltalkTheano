@@ -29,8 +29,18 @@ class picsom_bin_data:
 
   def nobjects(self) :
     return self._nobjects
-
-  def get_float(self, iL) :
+  
+  def get_float(self, i) :
+    if (i<0 or i>=self._nobjects) :
+      raise Exception('Index %i exceeds size of "%s"' % (i, self._path))
+    self._fp.seek(self._hsize+i*self._rlength)
+    vec = self._fp.read(self._rlength)
+    return list(unpack('%if' % self._vdim, vec))
+  
+  def get_float_list(self, iL) :
+    if iL == -1 :
+	  iL = xrange(self._nobjects)
+	
     vec = [[]]*len(iL)
     for idx, i in enumerate(iL):
       if (i<0 or i>=self._nobjects) :
@@ -43,6 +53,6 @@ if __name__ == "__main__":
   d = picsom_bin_data("/triton/ics/project/imagedb/picsom/databases/v/features/c_in12_z_fc6_a_ca3.bin");
   print d.vdim()
   print d.nobjects()
-  print d.get_float([10])[0:10]
+  print d.get_float(10)[0:10]
 #  print d.get_float(10)
 

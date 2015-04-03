@@ -8,6 +8,7 @@ import codecs
 import numpy as np
 import theano
 from collections import defaultdict
+from picsom_bin_data import picsom_bin_data
 
 class BasicDataProvider:
   def __init__(self, params):
@@ -30,13 +31,19 @@ class BasicDataProvider:
     features_path = os.path.join(self.dataset_root, feature_file)
     print 'BasicDataProvider: reading %s' % (features_path, )
     
-    if mat_new_ver == 1:
-        features_struct = h5py.File(features_path)
-        self.features = np.array(features_struct[features_struct.keys()[0]],dtype=theano.config.floatX)
+    if feature_file.rsplit('.',1)[1] == 'mat':
+        if mat_new_ver == 1:
+            features_struct = h5py.File(features_path)
+            self.features = np.array(features_struct[features_struct.keys()[0]],dtype=theano.config.floatX)
+        else:
+            features_struct = scipy.io.loadmat(features_path)
+            self.features = features_struct['feats']
     else:
-        features_struct = scipy.io.loadmat(features_path)
-        self.features = features_struct['feats']
-
+        features_struct = picsom_bin_data(features_path) 
+        self.features = np.array(features_struct.get_float_list(-1)).T.astype(theano.config.floatX) 
+		# this is a 4096 x N numpy array of features
+        print "Working on Bin file now"                                        
+    
     # group images by their train/val/test split into a dictionary -> list structure
     self.split = defaultdict(list)
     for img in self.dataset['images']:
