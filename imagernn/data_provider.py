@@ -95,7 +95,7 @@ class BasicDataProvider:
       """Create the matrices from the datasets.
   
       This pad each sequence to the same lenght: the lenght of the
-      longuest sequence or maxlen.
+      longest sequence or maxlen.
   
       if maxlen is set, we will cut all sequence to this maximum
       lenght.

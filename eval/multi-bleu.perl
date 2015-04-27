@@ -121,7 +121,7 @@ my $bleu = 0;
 my @bleu=();
 
 for(my $n=1;$n<=4;$n++) {
-  if (defined ($TOTAL[$n])){
+  if (defined ($TOTAL[$n]) and defined ($CORRECT[$n])){
     $bleu[$n]=($TOTAL[$n])?$CORRECT[$n]/$TOTAL[$n]:0;
     # print STDERR "CORRECT[$n]:$CORRECT[$n] TOTAL[$n]:$TOTAL[$n]\n";
   }else{

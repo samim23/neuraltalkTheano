@@ -217,7 +217,7 @@ class LSTMGenerator:
   def prepPredictor(self, model_npy, checkpoint_params, beam_size):
     zipp(model_npy, self.model_th)
     
-    theano.config.exception_verbosity = 'high'
+    #theano.config.exception_verbosity = 'high'
 
 	# Now we build a predictor model
     (xI, predLogProb, predIdx, predCand) = self.build_prediction_model(self.model_th, checkpoint_params, beam_size)
@@ -373,4 +373,60 @@ class LSTMGenerator:
 
     return rval[3][-1], tensor.concatenate([idx0.reshape([1,beam_size]), rval[5]],axis=0), tensor.concatenate([cand0.reshape([1,beam_size]), rval[6]],axis=0)
   
+  def build_eval_other_sent(self, tparams, options,model_npy):
+    
+    zipp(model_npy, self.model_th)
+
+    # Used for dropout.
+    use_noise = theano.shared(numpy_floatX(0.))
+
+    xW = tensor.matrix('xW', dtype='int64')
+    mask = tensor.matrix('mask', dtype=config.floatX)
+    n_timesteps = xW.shape[0]
+    n_samples = xW.shape[1]
+
+    embW = tparams['Wemb'][xW.flatten()].reshape([n_timesteps,
+                                                n_samples,
+                                                options['hidden_size']])
+    xI = tensor.matrix('xI', dtype=config.floatX)
+    embImg = (tensor.dot(xI, tparams['WIemb']) + tparams['b_Img']).reshape([1,n_samples,options['image_encoding_size']]);
+    emb = tensor.concatenate([embImg, embW], axis=0) 
+
+    rval, updatesLSTM = self.lstm_layer(tparams, emb[:n_timesteps,:,:], use_noise, options, prefix=options['generator'],
+                                mask=mask)
+    p = rval[0]
+
+    p = tensor.dot(p,tparams['Wd']) + tparams['bd']
+
+    #pred = tensor.nnet.softmax(p)
+
+    #pred = rval[2]
+
+    #pred = pred[1:,:,:]
+    p = p[1:,:,:]
+
+    def accumCost(pred,xW,m,c_sum,ppl_sum):
+        pred = tensor.nnet.softmax(pred)
+        c_sum += (tensor.log(pred[tensor.arange(n_samples), xW]+1e-20) * m)
+        ppl_sum += -(tensor.log2(pred[tensor.arange(n_samples), xW]+1e-10) * m)
+        return c_sum, ppl_sum
+
+    sums, upd = theano.scan(fn=accumCost, 
+                                outputs_info=[tensor.alloc(numpy_floatX(0.), 1,n_samples),
+                                              tensor.alloc(numpy_floatX(0.), 1,n_samples)],
+                                sequences = [p, xW[1:,:], mask[1:,:]])
+
+    # NOTE1: we are leaving out the first prediction, which was made for the image
+    # and is meaningless. Here cost[0] contains log probability (log10) and cost[1] contains
+    # perplexity (log2)
+    cost = sums[0][-1]
+
+    self.f_pred_prob_other = theano.function([xW, xI, mask], p, name='f_pred_prob', updates=updatesLSTM)
+    #f_pred = theano.function([xW, mask], pred.argmax(axis=1), name='f_pred')
+
+    #cost = -tensor.log(pred[tensor.arange(n_timesteps),tensor.arange(n_samples), xW] + 1e-8).mean()
+    
+    self.f_eval_other = theano.function([xW, xI, mask], cost, name='f_grad')
+
+    return use_noise, xW, xI, mask, self.f_pred_prob_other, cost, p, updatesLSTM 
 

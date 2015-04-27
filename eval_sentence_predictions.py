@@ -32,6 +32,7 @@ def main(params):
 
   if 'use_theano' not in  checkpoint_params:
     checkpoint_params['use_theano'] = 1
+  checkpoint_params['use_theano'] = 1
 
   if 'image_feat_size' not in  checkpoint_params:
     checkpoint_params['image_feat_size'] = 4096 
