@@ -38,11 +38,27 @@ class BasicDataProvider:
         else:
             features_struct = scipy.io.loadmat(features_path)
             self.features = features_struct['feats']
-    else:
+    elif feature_file.rsplit('.',1)[1] == 'bin':
         features_struct = picsom_bin_data(features_path) 
         self.features = np.array(features_struct.get_float_list(-1)).T.astype(theano.config.floatX) 
 		# this is a 4096 x N numpy array of features
         print "Working on Bin file now"                                        
+    elif feature_file.rsplit('.',1)[1] == 'txt':
+        #This is for feature concatenation.
+        # NOTE: Assuming same order of features in all the files listed in the txt file
+        feat_Flist = open(features_path, 'r').read().splitlines()
+        
+        feat_list = []
+        
+        for f in feat_Flist:
+            f_struct = picsom_bin_data(os.path.join(self.dataset_root,f)) 
+            feat_list.append(np.array(f_struct.get_float_list(-1)).T.astype(theano.config.floatX))
+            print feat_list[-1].shape
+		    # this is a 4096 x N numpy array of features
+        self.features = np.concatenate(feat_list, axis=0)
+        print "Combined all the features. Final size is %d %d"%(self.features.shape[0],self.features.shape[1])
+
+
     
     # group images by their train/val/test split into a dictionary -> list structure
     self.split = defaultdict(list)
