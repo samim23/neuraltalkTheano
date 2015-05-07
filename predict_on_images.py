@@ -73,7 +73,7 @@ def main(params):
       
       for f in feat_Flist:
           f_struct = picsom_bin_data(f) 
-          feat_list.append(np.array(f_struct.get_float_list(-1)).T.astype('float32'))
+          feat_list.append(np.array(f_struct.get_float_list(idxes)).T)
           print feat_list[-1].shape
   	  # this is a 4096 x N numpy array of features
       features = np.concatenate(feat_list, axis=0)
