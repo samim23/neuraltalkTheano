@@ -183,7 +183,7 @@ def main(params):
       jstatus['train_ppl2'] = train_ppl2
       json_worker_status['history'].append(jstatus)
       status_file = os.path.join(params['worker_status_output_directory'], host + '_status.json')
-      import pdb; pdb.set_trace()
+      #import pdb; pdb.set_trace()
       try:
         json.dump(json_worker_status, open(status_file, 'w'))
       except Exception, e: # todo be more clever here
