@@ -69,6 +69,11 @@ def main(params):
   # fetch the data provider
   dp = getDataProvider(params)
 
+  params['aux_inp_size'] = dp.aux_inp_size
+  params['image_feat_size'] = dp.img_feat_size
+
+  print 'Image feature size is %d, and aux input size is %d'%(params['image_feat_size'],params['aux_inp_size'])
+
   misc = {} # stores various misc items that need to be passed around the framework
 
   # go over all training sentences and find the vocabulary we want to use, i.e. the words that occur
@@ -88,7 +93,7 @@ def main(params):
 
   # Define the computational graph for relating the input image features and word indices to the
   # log probability cost funtion. 
-  (use_dropout, xW, xI, mask,
+  (use_dropout, inp_list,
      f_pred_prob, cost, predTh, updatesLSTM) = lstmGenerator.build_model(model, params)
 
   # Add the regularization cost. Since this is specific to trainig and doesn't get included when we 
@@ -102,12 +107,15 @@ def main(params):
         reg_cost *= 0.5 * reg_c 
       cost[0] += (reg_cost /params['batch_size'])
     
-  f_eval= theano.function([xW, xI, mask], cost, name='f_grad')
-  grads = tensor.grad(cost[0], wrt=model.values())
+  # Compile an evaluation function.. Doesn't include gradients
+  # To be used for validation set evaluation
+  f_eval= theano.function(inp_list, cost, name='f_eval')
 
+  # Now let's build a gradient computation graph and rmsprop update mechanism
+  grads = tensor.grad(cost[0], wrt=model.values())
   lr = tensor.scalar(name='lr',dtype=config.floatX)
   f_grad_shared, f_update, zg, rg, ud = lstmGenerator.rmsprop(lr, model, grads,
-                                      xW, xI, mask, cost, params)
+                                      inp_list, cost, params)
 
   print 'model init done.'
   print 'model has keys: ' + ', '.join(model.keys())
@@ -115,9 +123,8 @@ def main(params):
   #print 'updating: ' + ', '.join( '%s [%dx%d]' % (k, model[k].shape[0], model[k].shape[1]) for k in misc['regularize'])
   #print 'number of learnable parameters total: %d' % (sum(model[k].shape[0] * model[k].shape[1] for k in misc['update']), )
 
-
   # calculate how many iterations we need, One epoch is considered once going through all the sentences and not images
-  # Hence in case of coc/flickr this will 5* no of images
+  # Hence in case of coco/flickr this will 5* no of images
   num_sentences_total = dp.getSplitSize('train', ofwhat = 'sentences')
   num_iters_one_epoch = num_sentences_total / batch_size
   max_iters = max_epochs * num_iters_one_epoch
@@ -141,13 +148,13 @@ def main(params):
     t0 = time.time()
     # fetch a batch of data
     batch = [dp.sampleImageSentencePair() for i in xrange(batch_size)]
-    xWd, xId, maskd, lenS = dp.prepare_data(batch,misc['wordtoix'])
+    real_inp_list, lenS = dp.prepare_data(batch,misc['wordtoix'])
     
     # Enable using dropout in training 
     use_dropout.set_value(1.)
 
     # evaluate cost, gradient and perform parameter update
-    cost = f_grad_shared(xWd, xId, maskd)
+    cost = f_grad_shared(*real_inp_list)
     f_update(params['learning_rate'])
     dt = time.time() - t0
 
@@ -176,6 +183,7 @@ def main(params):
       jstatus['train_ppl2'] = train_ppl2
       json_worker_status['history'].append(jstatus)
       status_file = os.path.join(params['worker_status_output_directory'], host + '_status.json')
+      import pdb; pdb.set_trace()
       try:
         json.dump(json_worker_status, open(status_file, 'w'))
       except Exception, e: # todo be more clever here
@@ -233,6 +241,7 @@ if __name__ == "__main__":
   parser.add_argument('--image_feat_size', dest='image_feat_size', type=int, default=4096, help='size of the input image features')
   parser.add_argument('--data_file', dest='data_file', type=str, default='dataset.json', help='Which dataset file shpuld we use')
   parser.add_argument('--mat_new_ver', dest='mat_new_ver', type=int, default=-1, help='If the .mat feature files are saved with new version (compressed) set this flag to 1')
+  parser.add_argument('--aux_inp_file', dest='aux_inp_file', type=str, default='None', help='Is there any auxillary inputs ? If yes indicate file here')
 
   # model parameters
   parser.add_argument('--image_encoding_size', dest='image_encoding_size', type=int, default=512, help='size of the image encoding')
@@ -269,6 +278,9 @@ if __name__ == "__main__":
   if params['checkpoint_file_name'] != 'None':
     checkpoint_init = pickle.load(open(params['checkpoint_file_name'], 'rb'))
     model_init_from = checkpoint_init['model']
+
+  if params['aux_inp_file'] != 'None':
+    params['en_aux_inp'] = 1
     
   print 'parsed parameters:'
   print json.dumps(params, indent = 2)

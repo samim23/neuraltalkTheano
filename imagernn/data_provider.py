@@ -58,8 +58,19 @@ class BasicDataProvider:
         self.features = np.concatenate(feat_list, axis=0)
         print "Combined all the features. Final size is %d %d"%(self.features.shape[0],self.features.shape[1])
 
+    self.img_feat_size = self.features.shape[0]
 
-    
+    self.aux_pres = 0
+    self.aux_inp_size = 0
+    if params.get('en_aux_inp',0):
+        # Load Auxillary input file, one vec per image
+        # NOTE: Assuming same order as feature file
+        f_struct = picsom_bin_data(os.path.join(self.dataset_root,params['aux_inp_file'])) 
+        self.aux_inputs = np.array(f_struct.get_float_list(-1)).T.astype(theano.config.floatX) 
+        self.aux_pres = 1
+        self.aux_inp_size = self.aux_inputs.shape[0]
+
+
     # group images by their train/val/test split into a dictionary -> list structure
     self.split = defaultdict(list)
     for img in self.dataset['images']:
@@ -79,6 +90,8 @@ class BasicDataProvider:
     if not 'feat' in img: # also fill in the features
       feature_index = img['imgid'] # NOTE: imgid is an integer, and it indexes into features
       img['feat'] = self.features[:,feature_index]
+      if self.aux_pres:
+        img['aux_inp'] = self.aux_inputs[:,feature_index]
     return img
 
   def _getSentence(self, sent):
@@ -119,8 +132,9 @@ class BasicDataProvider:
       This swap the axis!
       """
       seqs = []
+      xI = np.row_stack(x['image']['feat'] for x in batch)
+
       for ix,x in enumerate(batch):
-        xI = np.row_stack(x['image']['feat'] for x in batch)
         seqs.append([0] + [wordtoix[w] for w in x['sentence']['tokens'] if w in wordtoix] + [0])
 
       # x: a list of sentences
@@ -150,8 +164,15 @@ class BasicDataProvider:
       for idx, s in enumerate(seqs):
           xW[:lengths[idx], idx] = s
           x_mask[:lengths[idx], idx] = 1.
+
+      inp_list = [xW, xI, x_mask]
+
+      if self.aux_pres:
+        xAux = np.row_stack(x['image']['aux_inp'] for x in batch)
+        #xAux = np.tile(xAux,[maxlen,1,1])
+        inp_list.append(xAux)
   
-      return xW, xI, x_mask, (np.sum(lengths) - n_samples)
+      return inp_list, (np.sum(lengths) - n_samples)
 
 
   def iterImageSentencePair(self, split = 'train', max_images = -1):

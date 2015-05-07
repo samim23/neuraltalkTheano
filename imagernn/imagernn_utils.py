@@ -55,8 +55,8 @@ def eval_split_theano(split, dp, model, params, misc, gen_fprop, **kwargs):
   logppln = 0
   nsent = 0
   for batch in dp.iterImageSentencePairBatch(split = split, max_batch_size = eval_batch_size, max_images = eval_max_images):
-    xWd, xId, maskd, lenS = dp.prepare_data(batch,wordtoix)
-    cost = gen_fprop(xWd, xId, maskd)
+    inp_list, lenS = dp.prepare_data(batch,wordtoix)
+    cost = gen_fprop(*inp_list)
     logppl += cost[1] 
     logppln += lenS 
     nsent += eval_batch_size
