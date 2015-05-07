@@ -60,10 +60,25 @@ def main(params):
   if features_path.rsplit('.',1)[1] == 'mat':
     features_struct = scipy.io.loadmat(features_path)
     features = features_struct['feats'][:,idxes] # this is a 4096 x N numpy array of features
-  else:
+  elif features_path.rsplit('.',1)[1] == 'bin':
     features_struct = picsom_bin_data(features_path) 
     features = np.array(features_struct.get_float_list(idxes)).T; # this is a 4096 x N numpy array of features
     print "Working on Bin file now"
+  elif features_path.rsplit('.',1)[1] == 'txt':
+      #This is for feature concatenation.
+      # NOTE: Assuming same order of features in all the files listed in the txt file
+      feat_Flist = open(features_path, 'r').read().splitlines()
+      
+      feat_list = []
+      
+      for f in feat_Flist:
+          f_struct = picsom_bin_data(os.path.join(self.dataset_root,f)) 
+          feat_list.append(np.array(f_struct.get_float_list(-1)).T.astype(theano.config.floatX))
+          print feat_list[-1].shape
+  	  # this is a 4096 x N numpy array of features
+      features = np.concatenate(feat_list, axis=0)
+      print "Combined all the features. Final size is %d %d"%(self.features.shape[0],self.features.shape[1])
+
 
   D,NN = features.shape
   N = len(img_names) 
