@@ -72,12 +72,12 @@ def main(params):
       feat_list = []
       
       for f in feat_Flist:
-          f_struct = picsom_bin_data(os.path.join(self.dataset_root,f)) 
-          feat_list.append(np.array(f_struct.get_float_list(-1)).T.astype(theano.config.floatX))
+          f_struct = picsom_bin_data(f) 
+          feat_list.append(np.array(f_struct.get_float_list(-1)).T.astype('float32'))
           print feat_list[-1].shape
   	  # this is a 4096 x N numpy array of features
       features = np.concatenate(feat_list, axis=0)
-      print "Combined all the features. Final size is %d %d"%(self.features.shape[0],self.features.shape[1])
+      print "Combined all the features. Final size is %d %d"%(features.shape[0],features.shape[1])
 
 
   D,NN = features.shape
