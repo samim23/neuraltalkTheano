@@ -24,7 +24,6 @@ class LSTMGenerator:
     generator = params.get('generator', 'lstm')
     vocabulary_size = params.get('vocabulary_size',-1)
     output_size = params.get('output_size',-1)
-    output_size = params.get('output_size',-1)
     image_feat_size = params.get('image_feat_size',-1)# size of CNN vectors hardcoded here
 
     model = OrderedDict()
@@ -124,7 +123,7 @@ class LSTMGenerator:
 
     embW = tparams['Wemb'][xW.flatten()].reshape([n_timesteps,
                                                 n_samples,
-                                                options['hidden_size']])
+                                                options['word_encoding_size']])
     xI = tensor.matrix('xI', dtype=config.floatX)
     xAux = tensor.matrix('xAux', dtype=config.floatX)
 
@@ -414,7 +413,7 @@ class LSTMGenerator:
 
     embW = tparams['Wemb'][xW.flatten()].reshape([n_timesteps,
                                                 n_samples,
-                                                options['hidden_size']])
+                                                options['word_encoding_size']])
     xI = tensor.matrix('xI', dtype=config.floatX)
     xAux = tensor.matrix('xAux', dtype=config.floatX)
 
