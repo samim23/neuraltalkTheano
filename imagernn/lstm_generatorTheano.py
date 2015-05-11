@@ -134,6 +134,7 @@ class LSTMGenerator:
     #This is implementation of input dropout !!
     if options['use_dropout']:
         emb = self.dropout_layer(emb, use_noise, trng, options['drop_prob_encoder'], shp = emb.shape)
+        xAux = self.dropout_layer(xAux, use_noise, trng, options['drop_prob_aux'], shp = xAux.shape)
 
     # This implements core lstm
     rval, updatesLSTM = self.lstm_layer(tparams, emb[:n_timesteps,:,:], xAux, use_noise, options, prefix=options['generator'],

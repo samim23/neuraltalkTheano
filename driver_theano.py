@@ -262,6 +262,7 @@ if __name__ == "__main__":
   parser.add_argument('--grad_clip', dest='grad_clip', type=float, default=5, help='clip gradients (normalized by batch size)? elementwise. if positive, at what threshold?')
   parser.add_argument('--drop_prob_encoder', dest='drop_prob_encoder', type=np.float32, default=0.5, help='what dropout to apply right after the encoder to an RNN/LSTM')
   parser.add_argument('--drop_prob_decoder', dest='drop_prob_decoder', type=np.float32, default=0.5, help='what dropout to apply right before the decoder in an RNN/LSTM')
+  parser.add_argument('--drop_prob_aux', dest='drop_prob_aux', type=np.float32, default=0.5, help='what dropout to apply for the auxillary inputs to lstm')
 
   # data preprocessing parameters
   parser.add_argument('--word_count_threshold', dest='word_count_threshold', type=int, default=5, help='if a word occurs less than this number of times in training data, it is discarded')
