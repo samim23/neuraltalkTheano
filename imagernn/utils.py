@@ -24,8 +24,7 @@ def initw(n,d): # initialize matrix of this size
   magic_number = 0.1
   return (np.random.rand(n,d) * 2 - 1) * magic_number # U[-0.1, 0.1]
 
-def initwTh(n,d): # initialize matrix of this size
-  magic_number = 0.1
+def initwTh(n,d,magic_number=0.1): # initialize matrix of this size
   return ((np.random.rand(n,d) * 2 - 1) * magic_number).astype(config.floatX) # U[-0.1, 0.1]
 
 def _p(pp, name):

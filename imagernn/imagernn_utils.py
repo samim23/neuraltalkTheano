@@ -1,5 +1,6 @@
 #from imagernn.generic_batch_generator import GenericBatchGenerator
 from imagernn.lstm_generatorTheano import LSTMGenerator
+from imagernn.data_provider import prepare_data
 import numpy as np
 
 def decodeGenerator(params):
@@ -55,7 +56,7 @@ def eval_split_theano(split, dp, model, params, misc, gen_fprop, **kwargs):
   logppln = 0
   nsent = 0
   for batch in dp.iterImageSentencePairBatch(split = split, max_batch_size = eval_batch_size, max_images = eval_max_images):
-    inp_list, lenS = dp.prepare_data(batch,wordtoix)
+    inp_list, lenS = prepare_data(batch,wordtoix)
     cost = gen_fprop(*inp_list)
     logppl += cost[1] 
     logppln += lenS 

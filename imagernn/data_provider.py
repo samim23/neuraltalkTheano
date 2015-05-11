@@ -120,61 +120,6 @@ class BasicDataProvider:
     out['sentence'] = self._getSentence(sent)
     return out
 
-  def prepare_data(self, batch, wordtoix, maxlen=None):
-      """Create the matrices from the datasets.
-  
-      This pad each sequence to the same lenght: the lenght of the
-      longest sequence or maxlen.
-  
-      if maxlen is set, we will cut all sequence to this maximum
-      lenght.
-  
-      This swap the axis!
-      """
-      seqs = []
-      xI = np.row_stack(x['image']['feat'] for x in batch)
-
-      for ix,x in enumerate(batch):
-        seqs.append([0] + [wordtoix[w] for w in x['sentence']['tokens'] if w in wordtoix] + [0])
-
-      # x: a list of sentences
-      lengths = [len(s) for s in seqs]
-  
-      if maxlen is not None:
-          new_seqs = []
-          new_labels = []
-          new_lengths = []
-          for l, s, y in zip(lengths, seqs, labels):
-              if l < maxlen:
-                  new_seqs.append(s)
-                  new_labels.append(y)
-                  new_lengths.append(l)
-          lengths = new_lengths
-          labels = new_labels
-          seqs = new_seqs
-  
-          if len(lengths) < 1:
-              return None, None, None
-  
-      n_samples = len(seqs)
-      maxlen = np.max(lengths)
-  
-      xW = np.zeros((maxlen, n_samples)).astype('int64')
-      x_mask = np.zeros((maxlen, n_samples)).astype(theano.config.floatX)
-      for idx, s in enumerate(seqs):
-          xW[:lengths[idx], idx] = s
-          x_mask[:lengths[idx], idx] = 1.
-
-      inp_list = [xW, xI, x_mask]
-
-      if self.aux_pres:
-        xAux = np.row_stack(x['image']['aux_inp'] for x in batch)
-        #xAux = np.tile(xAux,[maxlen,1,1])
-        inp_list.append(xAux)
-  
-      return inp_list, (np.sum(lengths) - n_samples)
-
-
   def iterImageSentencePair(self, split = 'train', max_images = -1):
     for i,img in enumerate(self.split[split]):
       if max_images >= 0 and i >= max_images: break
@@ -213,8 +158,94 @@ class BasicDataProvider:
       ix = ix[:min(len(ix),max_images)] # crop the list
     for i in ix:
       yield self._getImage(imglist[i])
+  
+def prepare_data( batch, wordtoix, maxlen=None):
+    """Create the matrices from the datasets.
+
+    This pad each sequence to the same lenght: the lenght of the
+    longest sequence or maxlen.
+
+    if maxlen is set, we will cut all sequence to this maximum
+    lenght.
+
+    This swap the axis!
+    """
+    seqs = []
+    xI = np.row_stack(x['image']['feat'] for x in batch)
+
+    for ix,x in enumerate(batch):
+      seqs.append([0] + [wordtoix[w] for w in x['sentence']['tokens'] if w in wordtoix] + [0])
+
+    # x: a list of sentences
+    lengths = [len(s) for s in seqs]
+
+    if maxlen is not None:
+        new_seqs = []
+        new_labels = []
+        new_lengths = []
+        for l, s, y in zip(lengths, seqs, labels):
+            if l < maxlen:
+                new_seqs.append(s)
+                new_labels.append(y)
+                new_lengths.append(l)
+        lengths = new_lengths
+        labels = new_labels
+        seqs = new_seqs
+
+        if len(lengths) < 1:
+            return None, None, None
+
+    n_samples = len(seqs)
+    maxlen = np.max(lengths)
+
+    xW = np.zeros((maxlen, n_samples)).astype('int64')
+    x_mask = np.zeros((maxlen, n_samples)).astype(theano.config.floatX)
+    for idx, s in enumerate(seqs):
+        xW[:lengths[idx], idx] = s
+        x_mask[:lengths[idx], idx] = 1.
+
+    inp_list = [xW, xI, x_mask]
+
+    if 'aux_inp' in batch[0]['image']:
+      xAux = np.row_stack(x['image']['aux_inp'] for x in batch)
+      #xAux = np.tile(xAux,[maxlen,1,1])
+      inp_list.append(xAux)
+
+    return inp_list, (np.sum(lengths) - n_samples)
 
 def getDataProvider(params):
   """ we could intercept a special dataset and return different data providers """
   assert params['dataset'] in ['flickr8k', 'flickr30k', 'coco'], 'dataset %s unknown' % (dataset, )
   return BasicDataProvider(params)
+
+def loadArbitraryFeatures(params, idxes):
+  
+  features_path = params['feat_file']
+  if features_path.rsplit('.',1)[1] == 'mat':
+    features_struct = scipy.io.loadmat(features_path)
+    features = features_struct['feats'][:,idxes] # this is a 4096 x N numpy array of features
+  elif features_path.rsplit('.',1)[1] == 'bin':
+    features_struct = picsom_bin_data(features_path) 
+    features = np.array(features_struct.get_float_list(idxes)).T; # this is a 4096 x N numpy array of features
+    print "Working on Bin file now"
+  elif features_path.rsplit('.',1)[1] == 'txt':
+      #This is for feature concatenation.
+      # NOTE: Assuming same order of features in all the files listed in the txt file
+      feat_Flist = open(features_path, 'r').read().splitlines()
+      feat_list = []
+      for f in feat_Flist:
+          f_struct = picsom_bin_data(f) 
+          feat_list.append(np.array(f_struct.get_float_list(idxes)).T)
+          print feat_list[-1].shape
+  	  # this is a 4096 x N numpy array of features
+      features = np.concatenate(feat_list, axis=0)
+      print "Combined all the features. Final size is %d %d"%(features.shape[0],features.shape[1])
+  
+  aux_inp = []
+  if params.get('en_aux_inp',0):
+      # Load Auxillary input file, one vec per image
+      # NOTE: Assuming same order as feature file
+      f_struct = picsom_bin_data(params['aux_inp_file']) 
+      aux_inp = np.array(f_struct.get_float_list(idxes)).T.astype(theano.config.floatX) 
+
+  return features.astype(theano.config.floatX), aux_inp

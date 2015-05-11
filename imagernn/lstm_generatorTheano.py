@@ -45,7 +45,7 @@ class LSTMGenerator:
     self.regularize = ['lstm_W_hid', 'lstm_W_inp', 'Wd', 'WIemb', 'Wemb' ]
 
     if params.get('en_aux_inp',0):
-        model['lstm_W_aux'] = initwTh(aux_inp_size, 4 * hidden_size)
+        model['lstm_W_aux'] = initwTh(aux_inp_size, 4 * hidden_size, 0.01)
         update_list.append('lstm_W_aux')
         self.regularize.append('lstm_W_aux')
 
@@ -133,7 +133,8 @@ class LSTMGenerator:
     #This is implementation of input dropout !!
     if options['use_dropout']:
         emb = self.dropout_layer(emb, use_noise, trng, options['drop_prob_encoder'], shp = emb.shape)
-        xAux = self.dropout_layer(xAux, use_noise, trng, options['drop_prob_aux'], shp = xAux.shape)
+        if options.get('en_aux_inp',0):
+            xAux = self.dropout_layer(xAux, use_noise, trng, options['drop_prob_aux'], shp = xAux.shape)
 
     # This implements core lstm
     rval, updatesLSTM = self.lstm_layer(tparams, emb[:n_timesteps,:,:], xAux, use_noise, options, prefix=options['generator'],
@@ -199,8 +200,7 @@ class LSTMGenerator:
         preact = tensor.dot(h_, tparams[_p(prefix, 'W_hid')])
         preact += x_
         if options.get('en_aux_inp',0):
-            preact += tensor.dot(aux_input,tparams[_p(prefix,'W_aux')])
-            print 'Addition is happening'
+            preact += tensor.dot(xAux,tparams[_p(prefix,'W_aux')])
 
         #  preact += tparams[_p(prefix, 'b')]
 
@@ -218,6 +218,9 @@ class LSTMGenerator:
 
     state_below = (tensor.dot(state_below, tparams[_p(prefix, 'W_inp')]) +
                        tparams[_p(prefix, 'b')])
+    
+    if options.get('en_aux_inp',0) == 0:
+       aux_input = [] 
 
     hidden_size = options['hidden_size']
     rval, updates = theano.scan(_step,

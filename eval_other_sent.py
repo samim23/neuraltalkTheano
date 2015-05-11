@@ -13,9 +13,11 @@ from imagernn.solver import Solver
 from imagernn.imagernn_utils import decodeGenerator, eval_split
 from imagernn.data_provider import prepare_data, loadArbitraryFeatures
 from picsom_bin_data import picsom_bin_data
+from nltk.tokenize import word_tokenize
 
 """
-This script is used to predict sentences for arbitrary images
+This script is used to compute models opinion of how likely a given sentence corresponds to a given image
+This can be used to build mutual evaluations of the different models with each other
 """
 
 def main(params):
@@ -49,65 +51,69 @@ def main(params):
   root_path = params['root_path']
   img_names_list = open(params['imgList'], 'r').read().splitlines()
 
-  if len(img_names_list[0].rsplit(',')) > 1: 
+  if len(img_names_list[0].rsplit(',')) > 2: 
     img_names = [x.rsplit (',')[0] for x in img_names_list]
-    idxes = [int(x.rsplit (',')[1]) for x in img_names_list]
-  else:
-    img_names = img_names_list
+    sentRaw = [x.rsplit (',')[1] for x in img_names_list]
+    idxes = [int(x.rsplit (',')[2]) for x in img_names_list]
+  elif len(img_names_list[0].rsplit(',')) == 2:
+    img_names = [x.rsplit (',')[0] for x in img_names_list]
+    sentRaw = [x.rsplit (',')[1] for x in img_names_list]
     idxes = xrange(len(img_names_list))
+  else:
+    print 'ERROR: List should atleast contain image name and a corresponding sentence'
+    return
 
   # load the features for all images
-  features = loadArbitraryFeatures(params, idxes)
+  features,aux_inp = loadArbitraryFeatures(params, idxes)
 
   D,NN = features.shape
   N = len(img_names) 
 
   # iterate over all images and predict sentences
   BatchGenerator = decodeGenerator(checkpoint_params)
+  BatchGenerator.build_eval_other_sent(BatchGenerator.model_th, checkpoint_params,model_npy)
+  eval_batch_size = params.get('eval_batch_size',100)
+  wordtoix = checkpoint['wordtoix']
   
-  if checkpoint_params['use_theano'] == 1:
-  	# Compile and init the theano predictor 
-    BatchGenerator.prepPredictor(model_npy, checkpoint_params, params['beam_size'])
-    model = BatchGenerator.model_th
-    print("\nUsing model run for %0.2f epochs with validation perplx at %0.3f\n" % (checkpoint['epoch'], \
-      checkpoint['perplexity']))
+  gen_fprop = BatchGenerator.f_eval_other
+  
+  print("\nUsing model run for %0.2f epochs with validation perplx at %0.3f\n" % (checkpoint['epoch'], \
+    checkpoint['perplexity']))
   
   kwparams = { 'beam_size' : params['beam_size'] }
   
-  for n in xrange(N):
-    print 'image %d/%d:' % (n, N)
-
+  n = 0
+  
+  while n < N:
+    print('image %d/%d:\r' % (n, N)),
+    
+    cbs = 0
     # encode the image
-    img = {}
-    img['feat'] = features[:, n]
-    img['local_file_path'] =img_names[n]
+    batch = []
+    while n < N and cbs < eval_batch_size:
+        out = {}
+        out['image'] = {'feat':features[:, n]}
+        out['sentence'] = {'raw': sentRaw[n],'tokens':word_tokenize(sentRaw[n])}
+        out['idx'] = n
+        if checkpoint_params.get('en_aux_inp',0):
+            out['image']['aux_inp'] = aux_inp[:, n]
+
+        cbs += 1
+        n += 1
+        batch.append(out)
+    
+    inp_list, lenS = prepare_data(batch,wordtoix)
 
     # perform the work. heavy lifting happens inside
-    Ys = BatchGenerator.predict([{'image':img}], model, checkpoint_params, **kwparams)
-    print Ys
+    eval_array = gen_fprop(*inp_list)
 
-    # build up the output
-    img_blob = {}
-    img_blob['img_path'] = img['local_file_path']
-
-    # encode the top prediction
-    top_predictions = Ys[0] # take predictions for the first (and only) image we passed in
-    top_prediction = top_predictions[0] # these are sorted with highest on top
-    candidate = ' '.join([ixtoword[int(ix)] for ix in top_prediction[1] if ix > 0]) # ix 0 is the END token, skip that
-    print 'PRED: (%f) %s' % (float(top_prediction[0]), candidate)
-    img_blob['candidate'] = {'text': candidate, 'logprob': float(top_prediction[0])}    
-
-    # Code to save all the other candidates 
-    candlist = []
-    for ci in xrange(len(top_predictions)-1):
-        prediction = top_predictions[ci+1] # these are sorted with highest on top
-        candidate = ' '.join([ixtoword[int(ix)] for ix in prediction[1] if ix > 0]) # ix 0 is the END token, skip that
-        candlist.append({'text': candidate, 'logprob': float(prediction[0])})
-    
-    img_blob['candidatelist'] = candlist
-
-
-    blob['imgblobs'].append(img_blob)
+    for ix,x in enumerate(batch):
+        # build up the output
+        img_blob = {}
+        img_blob['img_path'] = img_names[x['idx']]
+        # encode the top prediction
+        img_blob['candidate'] = {'text': x['sentence']['raw'], 'logprob': float(eval_array[0,ix])}
+        blob['imgblobs'].append(img_blob)
 
   # dump result struct to file
   jsonFname = 'result_struct_%s.json' % (params['fname_append'] ) 
@@ -116,15 +122,6 @@ def main(params):
   json.dump(blob, open(save_file, 'w'))
 
   # dump output html
-  html = ''
-  for img in blob['imgblobs']:
-    html += '<img src="%s" height="400"><br>' % (img['img_path'], )
-    html += '(%f) %s <br><br>' % (img['candidate']['logprob'], img['candidate']['text'])
-
-  html_file = 'result_%s.html' % (params['fname_append']) 
-  html_file = os.path.join(root_path, html_file)
-  print 'writing html result file to %s...' % (html_file, )
-  open(html_file, 'w').write(html)
 
 if __name__ == "__main__":
 

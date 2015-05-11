@@ -10,7 +10,7 @@ import theano
 from theano import config
 import theano.tensor as tensor
 import cPickle as pickle
-from imagernn.data_provider import getDataProvider
+from imagernn.data_provider import getDataProvider, prepare_data
 from imagernn.solver import Solver
 from imagernn.imagernn_utils import decodeGenerator, eval_split_theano
 #from numbapro import cuda
@@ -148,7 +148,7 @@ def main(params):
     t0 = time.time()
     # fetch a batch of data
     batch = [dp.sampleImageSentencePair() for i in xrange(batch_size)]
-    real_inp_list, lenS = dp.prepare_data(batch,misc['wordtoix'])
+    real_inp_list, lenS = prepare_data(batch,misc['wordtoix'])
     
     # Enable using dropout in training 
     use_dropout.set_value(1.)
@@ -282,6 +282,8 @@ if __name__ == "__main__":
 
   if params['aux_inp_file'] != 'None':
     params['en_aux_inp'] = 1
+  else:
+    params['en_aux_inp'] = 0
     
   print 'parsed parameters:'
   print json.dumps(params, indent = 2)
