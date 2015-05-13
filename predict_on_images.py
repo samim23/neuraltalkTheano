@@ -55,6 +55,10 @@ def main(params):
   else:
     img_names = img_names_list
     idxes = xrange(len(img_names_list))
+  
+  if checkpoint_params.get('en_aux_inp',0) and (params.get('aux_inp_file','None') == 'None'):
+    raise ValueError('ERROR: please specify auxillary input feature using --aux_inp_file')
+    return
 
   # load the features for all images
   features, aux_inp = loadArbitraryFeatures(params, idxes)
@@ -137,9 +141,16 @@ if __name__ == "__main__":
   parser.add_argument('-d', '--dest', dest='root_path', default='example_images', type=str, help='folder to store the output files')
   parser.add_argument('-b', '--beam_size', type=int, default=1, help='beam size in inference. 1 indicates greedy per-word max procedure. Good value is approx 20 or so, and more = better.')
   parser.add_argument('--fname_append', type=str, default='', help='str to append to routput files')
+  parser.add_argument('--aux_inp_file', dest='aux_inp_file', type=str, default='None', help='Is there any auxillary inputs ? If yes indicate file here')
 
   args = parser.parse_args()
   params = vars(args) # convert to ordinary dict
+
+  if params['aux_inp_file'] != 'None':
+    params['en_aux_inp'] = 1
+  else:
+    params['en_aux_inp'] = 0
+
   print 'parsed parameters:'
   print json.dumps(params, indent = 2)
   main(params)
