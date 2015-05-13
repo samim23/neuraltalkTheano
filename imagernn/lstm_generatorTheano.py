@@ -260,7 +260,13 @@ class LSTMGenerator:
   def predict(self, batch, model_npy, checkpoint_params, **kwparams):
 
     beam_size = kwparams.get('beam_size', 1)
-    Ax = self.f_pred_th(batch[0]['image']['feat'].reshape(1,checkpoint_params['image_feat_size']).astype(config.floatX))
+    
+    inp_list = [batch[0]['image']['feat'].reshape(1,checkpoint_params['image_feat_size']).astype(config.floatX)]
+    
+    if checkpoint_params.get('en_aux_inp',0):
+        inp_list.append(batch[0]['image']['aux_inp'].reshape(1,checkpoint_params['aux_inp_size']).astype(config.floatX))
+
+    Ax = self.f_pred_th(*inp_list)
 
     Ys = []
     for i in xrange(beam_size):
@@ -279,11 +285,16 @@ class LSTMGenerator:
     n_samples = 1
 
     xI = tensor.matrix('xI', dtype=config.floatX)
+    xAux = tensor.matrix('xAux', dtype=config.floatX)
     embImg = (tensor.dot(xI, tparams['WIemb']) + tparams['b_Img']).reshape([n_samples,options['image_encoding_size']]);
 
-    accLogProb, Idx, Cand = self.lstm_predict_layer(tparams, embImg, options, beam_size, prefix=options['generator'])
+    accLogProb, Idx, Cand = self.lstm_predict_layer(tparams, embImg, xAux, options, beam_size, prefix=options['generator'])
 
-    return [xI], accLogProb, Idx, Cand 
+    inp_list = [xI]
+    if options.get('en_aux_inp',0):
+        inp_list.append(xAux)
+
+    return inp_list, accLogProb, Idx, Cand 
 
 # ========================================================================================
   
@@ -292,7 +303,7 @@ class LSTMGenerator:
   # i.e zeroth word vector. From then the network output word (i.e ML word) is fed as the input to the next time step.
   # In beam_size > 1 we could repeat a time step multiple times, once for each beam!!. 
 
-  def lstm_predict_layer(self, tparams, Xi, options, beam_size, prefix='lstm'):
+  def lstm_predict_layer(self, tparams, Xi, aux_input, options, beam_size, prefix='lstm'):
     nMaxsteps = 30 
     n_samples = 1 
 
@@ -301,10 +312,12 @@ class LSTMGenerator:
             return _x[:, :, n * dim:(n + 1) * dim]
         return _x[:, n * dim:(n + 1) * dim]
 
-    def _stepP(x_, h_, c_, lP_, dV_):
+    def _stepP(x_, h_, c_, lP_, dV_, xAux):
         preact = tensor.dot(h_, tparams[_p(prefix, 'W_hid')])
     	preact += (tensor.dot(x_, tparams[_p(prefix, 'W_inp')]) +
                    tparams[_p(prefix, 'b')])
+        if options.get('en_aux_inp',0):
+            preact += tensor.dot(xAux,tparams[_p(prefix,'W_aux')])
 
         i = tensor.nnet.sigmoid(_slice(preact, 0, options['hidden_size']))
         f = tensor.nnet.sigmoid(_slice(preact, 1, options['hidden_size']))
@@ -371,6 +384,9 @@ class LSTMGenerator:
 
         return [xW, h, c, xWlogProb, doneVec, xWIdx, xCandIdx], theano.scan_module.until(doneVec.all())
 	
+    if options.get('en_aux_inp',0) == 0:
+       aux_input = [] 
+
     hidden_size = options['hidden_size']
 
 	# Propogate the image feature vector
@@ -386,10 +402,12 @@ class LSTMGenerator:
     lP = tensor.alloc(numpy_floatX(0.), beam_size);
     dV = tensor.alloc(np.int8(0.), beam_size);
 
-    [xW, h, c, _, _, _, _], _ = _stepP(Xi, h[:1,:], c[:1,:], lP, dV) 
-
+    [xW, h, c, _, _, _, _], _ = _stepP(Xi, h[:1,:], c[:1,:], lP, dV,aux_input) 
+    
     xWStart = tparams['Wemb'][[0]]
-    [xW, h, c, lP, dV, idx0, cand0], _ = _stepP(xWStart, h[:1,:], c[:1,:], lP, dV) 
+    [xW, h, c, lP, dV, idx0, cand0], _ = _stepP(xWStart, h[:1,:], c[:1,:], lP, dV, aux_input) 
+    
+    aux_input = tensor.extra_ops.repeat(aux_input,beam_size,axis=0)
     #xWStart = tensor.extra_ops.repeat(xWStart,beam_size,axis=0)
     #xWStart = xWStart.reshape([1,beam_size,options['word_encoding_size']])
 
@@ -397,7 +415,7 @@ class LSTMGenerator:
     #c = tensor.alloc(numpy_floatX(0.),n_samples,hidden_size)
 
 	# Now lets do the loop.
-    rval, updates = theano.scan(_stepP, outputs_info=[xW, h, c, lP, dV, None, None], name=_p(prefix, 'predict_layers'), n_steps=nMaxsteps)
+    rval, updates = theano.scan(_stepP, outputs_info=[xW, h, c, lP, dV, None, None], non_sequences = [aux_input], name=_p(prefix, 'predict_layers'), n_steps=nMaxsteps)
 
     return rval[3][-1], tensor.concatenate([idx0.reshape([1,beam_size]), rval[5]],axis=0), tensor.concatenate([cand0.reshape([1,beam_size]), rval[6]],axis=0)
   

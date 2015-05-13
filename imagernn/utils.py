@@ -90,4 +90,19 @@ def forwardSubRoutine(Hin,Hout, X, WLSTM,IFOG,IFOGf,C,n,d):
 #    blas.gemm('N','N',dIFOG.shape[0],WLSTM.shape[1],WLSTM.shape[0],1.0,dIFOG,WLSTM,0.0,dHin)
 #	
 #    return dHin, dWLSTM
+
+def softmax(x,axis = -1):
+
+    xs = x.shape
+    ndim = len(xs)
+    if axis == -1:
+        axis = ndim -1
+
+    z = np.max(x,axis=axis)
+    y = x - z[...,np.newaxis] # for numerical stability shift into good numerical range
+    e1 = np.exp(y) 
+    p1 = e1 / np.sum(e1,axis=axis)[...,np.newaxis]
+    
+    return p1
+
 	

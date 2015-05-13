@@ -162,11 +162,11 @@ class BasicDataProvider:
 def prepare_data( batch, wordtoix, maxlen=None):
     """Create the matrices from the datasets.
 
-    This pad each sequence to the same lenght: the lenght of the
+    This pad each sequence to the same length: the lenght of the
     longest sequence or maxlen.
 
     if maxlen is set, we will cut all sequence to this maximum
-    lenght.
+    length.
 
     This swap the axis!
     """

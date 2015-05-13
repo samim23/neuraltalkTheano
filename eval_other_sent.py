@@ -64,7 +64,7 @@ def main(params):
     return
 
   # load the features for all images
-  features,aux_inp = loadArbitraryFeatures(params, idxes)
+  features, aux_inp = loadArbitraryFeatures(params, idxes)
 
   D,NN = features.shape
   N = len(img_names) 
@@ -79,8 +79,6 @@ def main(params):
   
   print("\nUsing model run for %0.2f epochs with validation perplx at %0.3f\n" % (checkpoint['epoch'], \
     checkpoint['perplexity']))
-  
-  kwparams = { 'beam_size' : params['beam_size'] }
   
   n = 0
   

@@ -57,7 +57,7 @@ def main(params):
     idxes = xrange(len(img_names_list))
 
   # load the features for all images
-  features = loadArbitraryFeatures(params, idxes)
+  features, aux_inp = loadArbitraryFeatures(params, idxes)
 
   D,NN = features.shape
   N = len(img_names) 
@@ -80,6 +80,8 @@ def main(params):
     # encode the image
     img = {}
     img['feat'] = features[:, n]
+    if checkpoint_params.get('en_aux_inp',0):
+        img['aux_inp'] = aux_inp[:, n]
     img['local_file_path'] =img_names[n]
 
     # perform the work. heavy lifting happens inside
