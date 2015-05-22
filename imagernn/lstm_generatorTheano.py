@@ -483,7 +483,7 @@ class LSTMGenerator:
 
     #cost = -tensor.log(pred[tensor.arange(n_timesteps),tensor.arange(n_samples), xW] + 1e-8).mean()
 
-    self.f_eval_other = theano.function([xW, xI, mask], cost, name='f_eval')
+    self.f_eval_other = theano.function(inp_list, cost, name='f_eval')
 
     return use_noise, inp_list, self.f_pred_prob_other, cost, p, updatesLSTM 
 

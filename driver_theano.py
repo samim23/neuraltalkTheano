@@ -141,6 +141,7 @@ def main(params):
   ## Initialize the model parameters from the checkpoint file if we are resuming training
   if params['checkpoint_file_name'] != 'None':
     zipp(model_init_from,model)
+    zipp(rg_init,rg)
     print("\nContinuing training from previous model\n. Already run for %0.2f epochs with validation perplx at %0.3f\n" % (checkpoint_init['epoch'], \
       checkpoint_init['perplexity']))
   
@@ -207,10 +208,12 @@ def main(params):
           filename = 'model_checkpoint_%s_%s_%s_%.2f.p' % (params['dataset'], host, params['fappend'], val_ppl2)
           filepath = os.path.join(params['checkpoint_output_directory'], filename)
           model_npy = unzip(model)
+          rgrads_npy = unzip(rg)
           checkpoint = {}
           checkpoint['it'] = it
           checkpoint['epoch'] = epoch
           checkpoint['model'] = model_npy
+          checkpoint['rgrads'] = rgrads_npy
           checkpoint['params'] = params
           checkpoint['perplexity'] = val_ppl2
           checkpoint['wordtoix'] = misc['wordtoix']
@@ -279,6 +282,7 @@ if __name__ == "__main__":
   if params['checkpoint_file_name'] != 'None':
     checkpoint_init = pickle.load(open(params['checkpoint_file_name'], 'rb'))
     model_init_from = checkpoint_init['model']
+    rg_init = checkpoint_init.get('rgrads',[])
 
   if params['aux_inp_file'] != 'None':
     params['en_aux_inp'] = 1

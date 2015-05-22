@@ -49,16 +49,25 @@ def zipp(params, tparams):
     """
     When we reload the model. Needed for the GPU stuff.
     """
-    for kk, vv in params.iteritems():
-        tparams[kk].set_value(vv)
+    if type(tparams) == list:
+        for i in xrange(len(params)):
+            tparams[i].set_value(params[i])
+    else:
+        for kk, vv in params.iteritems():
+            tparams[kk].set_value(vv)
 
 def unzip(zipped):
     """
     When we pickle the model. Needed for the GPU stuff.
     """
-    new_params = OrderedDict()
-    for kk, vv in zipped.iteritems():
-        new_params[kk] = vv.get_value()
+    if type(zipped) == list:
+        new_params = [] 
+        for vv in zipped:
+            new_params.append(vv.get_value())
+    else:
+        new_params = OrderedDict()
+        for kk, vv in zipped.iteritems():
+            new_params[kk] = vv.get_value()
     return new_params
 
 def forwardSubRoutine(Hin,Hout, X, WLSTM,IFOG,IFOGf,C,n,d):
