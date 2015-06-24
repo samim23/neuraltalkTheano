@@ -17,6 +17,10 @@ class BasicDataProvider:
     data_file = params.get('data_file', 'dataset.json')
     mat_new_ver = params.get('mat_new_ver', -1)
     print 'Initializing data provider for dataset %s...' % (dataset, )
+    self.hdf5Flag = 0 #Flag indicating whether the dataset is an HDF5 File.
+                 #Large HDF5 files are stored (by Vik) as one image 
+                 #  per row, going against the conventions of the other
+                 # storage formats
 
     # !assumptions on folder structure
     self.dataset_root = os.path.join('data', dataset)
@@ -38,6 +42,13 @@ class BasicDataProvider:
         else:
             features_struct = scipy.io.loadmat(features_path)
             self.features = features_struct['feats']
+    #The condition below makes consuming HDF5 features easy
+    #   This is what I (Vik) use for features extracted in an unsupervised
+    #   manner
+    elif feature_file.rsplit('.',1)[1] == 'hdf5':
+        self.hdf5Flag = 1
+        features_struct = h5py.File(features_path)
+        self.features = features_struct['features'] #The dataset in the HDF5 file is named 'features'
     elif feature_file.rsplit('.',1)[1] == 'bin':
         features_struct = picsom_bin_data(features_path) 
         self.features = np.array(features_struct.get_float_list(-1)).T.astype(theano.config.floatX) 
@@ -57,8 +68,13 @@ class BasicDataProvider:
 		    # this is a 4096 x N numpy array of features
         self.features = np.concatenate(feat_list, axis=0)
         print "Combined all the features. Final size is %d %d"%(self.features.shape[0],self.features.shape[1])
-
-    self.img_feat_size = self.features.shape[0]
+    
+    if self.hdf5Flag == 1:
+        #Because the HDF5 file is currently stored as one feature per row 
+        self.img_feat_size = self.features.shape[1]
+    else: 
+        self.img_feat_size = self.features.shape[0]
+        
 
     self.aux_pres = 0
     self.aux_inp_size = 0
@@ -75,6 +91,8 @@ class BasicDataProvider:
     self.split = defaultdict(list)
     for img in self.dataset['images']:
       self.split[img['split']].append(img)
+      if img['split'] != 'train':
+        self.split['allval'].append(img)
 
   # "PRIVATE" FUNCTIONS
   # in future we may want to create copies here so that we don't touch the 
@@ -89,7 +107,10 @@ class BasicDataProvider:
     if not 'local_file_path' in img: img['local_file_path'] = os.path.join(self.image_root, img['filename'])
     if not 'feat' in img: # also fill in the features
       feature_index = img['imgid'] # NOTE: imgid is an integer, and it indexes into features
-      img['feat'] = self.features[:,feature_index]
+      if self.hdf5Flag == 1:  #If you're reading from an HDF5 File
+          img['feat'] = self.features[feature_index, :]
+      else: 
+          img['feat'] = self.features[:,feature_index]
       if self.aux_pres:
         img['aux_inp'] = self.aux_inputs[:,feature_index]
     return img
@@ -220,32 +241,51 @@ def getDataProvider(params):
 
 def loadArbitraryFeatures(params, idxes):
   
-  features_path = params['feat_file']
-  if features_path.rsplit('.',1)[1] == 'mat':
-    features_struct = scipy.io.loadmat(features_path)
-    features = features_struct['feats'][:,idxes] # this is a 4096 x N numpy array of features
-  elif features_path.rsplit('.',1)[1] == 'bin':
-    features_struct = picsom_bin_data(features_path) 
-    features = np.array(features_struct.get_float_list(idxes)).T; # this is a 4096 x N numpy array of features
-    print "Working on Bin file now"
-  elif features_path.rsplit('.',1)[1] == 'txt':
-      #This is for feature concatenation.
-      # NOTE: Assuming same order of features in all the files listed in the txt file
-      feat_Flist = open(features_path, 'r').read().splitlines()
-      feat_list = []
-      for f in feat_Flist:
-          f_struct = picsom_bin_data(f) 
-          feat_list.append(np.array(f_struct.get_float_list(idxes)).T)
-          print feat_list[-1].shape
-  	  # this is a 4096 x N numpy array of features
-      features = np.concatenate(feat_list, axis=0)
-      print "Combined all the features. Final size is %d %d"%(features.shape[0],features.shape[1])
-  
-  aux_inp = []
-  if params.get('en_aux_inp',0):
-      # Load Auxillary input file, one vec per image
-      # NOTE: Assuming same order as feature file
-      f_struct = picsom_bin_data(params['aux_inp_file']) 
-      aux_inp = np.array(f_struct.get_float_list(idxes)).T.astype(theano.config.floatX) 
+  feat_all = []
+  aux_all = []
+  if params.get('multi_model',0) == 0:
+    params['nmodels'] = 1
+    
+  for i in xrange(params['nmodels']):
+      #----------------------------- Loop -------------------------------------#
+      features_path = params['feat_file'][i] if params.get('multi_model',0) else params['feat_file']
+      if features_path.rsplit('.',1)[1] == 'mat':
+        features_struct = scipy.io.loadmat(features_path)
+        features = features_struct['feats'][:,idxes].astype(theano.config.floatX) # this is a 4096 x N numpy array of features
+      elif features_path.rsplit('.',1)[1] == 'hdf5':
+        #If the file is one of Vik's HDF5 Files
+        features_struct = h5py.File(features_path,'r')
+        features = features_struct['feats'][idxes,:].astype(theano.config.floatX) # this is a N x 2032128 array of features
+      elif features_path.rsplit('.',1)[1] == 'bin':
+        features_struct = picsom_bin_data(features_path) 
+        features = np.array(features_struct.get_float_list(idxes)).T.astype(theano.config.floatX) # this is a 4096 x N numpy array of features
+        print "Working on Bin file now"
+      elif features_path.rsplit('.',1)[1] == 'txt':
+          #This is for feature concatenation.
+          # NOTE: Assuming same order of features in all the files listed in the txt file
+          feat_Flist = open(features_path, 'r').read().splitlines()
+          feat_list = []
+          for f in feat_Flist:
+              f_struct = picsom_bin_data(f) 
+              feat_list.append(np.array(f_struct.get_float_list(idxes)).T)
+              print feat_list[-1].shape
+      	  # this is a 4096 x N numpy array of features
+          features = np.concatenate(feat_list, axis=0).astype(theano.config.floatX)
+          print "Combined all the features. Final size is %d %d"%(features.shape[0],features.shape[1])
+      
+      aux_inp = []
+      aux_inp_file = params['aux_inp_file'][i] if params.get('multi_model',0) else params['aux_inp_file']
+      if aux_inp_file != None:
+          # Load Auxillary input file, one vec per image
+          # NOTE: Assuming same order as feature file
+          f_struct = picsom_bin_data(aux_inp_file) 
+          aux_inp = np.array(f_struct.get_float_list(idxes)).T.astype(theano.config.floatX) 
+      
+      feat_all.append(features)
+      aux_all.append(aux_inp)
 
-  return features.astype(theano.config.floatX), aux_inp
+  if params.get('multi_model',0) == 0:
+    return features, aux_inp
+  else:
+    return feat_all, aux_all
+

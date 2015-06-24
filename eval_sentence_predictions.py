@@ -71,6 +71,8 @@ def main(params):
     print 'image %d/%d:' % (n, max_images)
     references = [' '.join(x['tokens']) for x in img['sentences']] # as list of lists of tokens
     kwparams = {'beam_size' : params['beam_size']}
+    
+    img['feat'] = np.random.rand(*img['feat'].shape)
 
     Ys = BatchGenerator.predict([{'image':img}], model, checkpoint_params, **kwparams)
     
@@ -130,13 +132,13 @@ def main(params):
 
   # now also evaluate test split perplexity
   
-  if checkpoint_params['use_theano'] == 0:
-    gtppl = eval_split('test', dp, model, checkpoint_params, misc, eval_max_images = max_images)
-  else:
-    gtppl = eval_split_theano('test', dp, model, checkpoint_params, misc, BatchGenerator.f_eval, eval_max_images = max_images) # perform the evaluation on VAL set
-  print 'perplexity of ground truth words based on dictionary of %d words: %f' % (len(ixtoword), gtppl)
-  blob['gtppl'] = gtppl
-
+#  if checkpoint_params['use_theano'] == 0:
+#    gtppl = eval_split('test', dp, model, checkpoint_params, misc, eval_max_images = max_images)
+#  else:
+#    gtppl = eval_split_theano('test', dp, model, checkpoint_params, misc, BatchGenerator.f_eval, eval_max_images = max_images) # perform the evaluation on VAL set
+#  print 'perplexity of ground truth words based on dictionary of %d words: %f' % (len(ixtoword), gtppl)
+#  blob['gtppl'] = gtppl
+#
   # dump result struct to file
   print 'saving result struct to %s' % (params['result_struct_filename'], )
   json.dump(blob, open(params['result_struct_filename'], 'w'))

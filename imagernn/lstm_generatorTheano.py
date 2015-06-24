@@ -278,8 +278,7 @@ class LSTMGenerator:
 
         Ys.append([Ax[0][i], candI])
     return [Ys]
-
-
+  
   def build_prediction_model(self, tparams, options, beam_size):
 
     n_samples = 1
@@ -297,7 +296,6 @@ class LSTMGenerator:
     return inp_list, accLogProb, Idx, Cand 
 
 # ========================================================================================
-  
   # LSTM LAYER in Prediction mode. Here we don't provide the word sequences, just the image feature vector 
   # The network starts first with forward propogatin the image feature vector. Then we pass the start word feature
   # i.e zeroth word vector. From then the network output word (i.e ML word) is fed as the input to the next time step.
@@ -306,35 +304,33 @@ class LSTMGenerator:
   def lstm_predict_layer(self, tparams, Xi, aux_input, options, beam_size, prefix='lstm'):
     nMaxsteps = 30 
     n_samples = 1 
-
+  
     def _slice(_x, n, dim):
         if _x.ndim == 3:
             return _x[:, :, n * dim:(n + 1) * dim]
         return _x[:, n * dim:(n + 1) * dim]
-
+  
+    # ----------------------  STEP FUNCTION  ---------------------- #
     def _stepP(x_, h_, c_, lP_, dV_, xAux):
         preact = tensor.dot(h_, tparams[_p(prefix, 'W_hid')])
-    	preact += (tensor.dot(x_, tparams[_p(prefix, 'W_inp')]) +
+        preact += (tensor.dot(x_, tparams[_p(prefix, 'W_inp')]) +
                    tparams[_p(prefix, 'b')])
         if options.get('en_aux_inp',0):
             preact += tensor.dot(xAux,tparams[_p(prefix,'W_aux')])
-
+  
         i = tensor.nnet.sigmoid(_slice(preact, 0, options['hidden_size']))
         f = tensor.nnet.sigmoid(_slice(preact, 1, options['hidden_size']))
         o = tensor.nnet.sigmoid(_slice(preact, 2, options['hidden_size']))
         c = tensor.tanh(_slice(preact, 3, options['hidden_size']))
-
+  
         c = f * c_ + i * c
-
+  
         h = o * tensor.tanh(c)
-
+  
         p = tensor.dot(h,tparams['Wd']) + tparams['bd']
         p = tensor.nnet.softmax(p)
         lProb = tensor.log(p + 1e-20)
-
-        #lProbBest = tensor.alloc(numpy_floatX(-10000.), x_.shape[0],beam_size);
-        #xWIdxBest = tensor.alloc(np.int64(0), x_.shape[0], beam_size)
-
+  
         def _FindB_best(lPLcl, lPprev, dVLcl):
             srtLcl = tensor.argsort(-lPLcl)
             srtLcl = srtLcl[:beam_size]
@@ -343,80 +339,53 @@ class LSTMGenerator:
             lProbBest = ifelse(tensor.eq( dVLcl, tensor.zeros_like(dVLcl)), lPLcl[srtLcl] + lPprev, deltaVec)
             xWIdxBest = ifelse(tensor.eq( dVLcl, tensor.zeros_like(dVLcl)), srtLcl, tensor.zeros_like(srtLcl)) 
             return lProbBest, xWIdxBest 
-
+  
         rvalLcl, updatesLcl = theano.scan(_FindB_best, sequences = [lProb, lP_, dV_], name=_p(prefix, 'FindBest'), n_steps=x_.shape[0])
         xWIdxBest = rvalLcl[1]
         lProbBest = rvalLcl[0]
-
-        #for ii in xrange(beam_size):
-        #    lProbLcl = lProb[ii,:]
-        #    srtLcl = tensor.argsort(-lProbLcl)
-        #    srtLcl = srtLcl[:beam_size]
-        #    #print deltaVec.type
-        #    #print lProbLcl.type
-        #    #print lP_.type
-        #    #print deltaVec.type
-        #    deltaVec = tensor.set_subtensor(deltaVec[0], lP_[ii])
-
-        #    lProbBest = tensor.set_subtensor(lProbBest[ii,:], ifelse( tensor.eq( dV_[ii], tensor.zeros_like(dV_[ii])), lProbLcl[srtLcl] + lP_[ii], deltaVec))
-        #    xWIdxBest = tensor.set_subtensor(xWIdxBest[ii,:], ifelse(tensor.eq(dV_[ii],tensor.zeros_like(dV_[ii])), srtLcl, tensor.zeros_like(srtLcl))) 
-
-
+  
         xWIdxBest = xWIdxBest.flatten()
         lProb = lProbBest.flatten()
-
-        #xWlogProb = tensor.iscalar("logProb")
-        #xWIdx = tensor.iscalar("WordIdx")
-        #xWlogProb, xWIdx = tensor.max_and_argmax(lProb)
-
+  
         # Now sort and find the best among these best extensions for the current beams
         srtIdx = tensor.argsort(-lProb)
         srtIdx = srtIdx[:beam_size]
         xWlogProb = lProb[srtIdx]
-
+  
         xWIdx = xWIdxBest[srtIdx]
-        xCandIdx = srtIdx // beam_size 
-
+        xCandIdx = srtIdx // beam_size # Floor division 
+  
         xW = tparams['Wemb'][xWIdx.flatten()]
         doneVec = tensor.eq(xWIdx,tensor.zeros_like(xWIdx))
         h = h.take(xCandIdx.flatten(),axis=0);
         c = c.take(xCandIdx.flatten(),axis=0)
-
+  
         return [xW, h, c, xWlogProb, doneVec, xWIdx, xCandIdx], theano.scan_module.until(doneVec.all())
-	
+    # ------------------- END of STEP FUNCTION  -------------------- #
+    
     if options.get('en_aux_inp',0) == 0:
        aux_input = [] 
-
+  
     hidden_size = options['hidden_size']
-
-	# Propogate the image feature vector
-
-#    h = tensor.matrix("Prev_out")
-#    c = tensor.matrix("Prev_cell")
-
+  
+  
     h = tensor.alloc(numpy_floatX(0.),beam_size,hidden_size)
     c = tensor.alloc(numpy_floatX(0.),beam_size,hidden_size)
-
-    #Xi = tensor.extra_ops.repeat(Xi,beam_size,axis=0)
-
+  
     lP = tensor.alloc(numpy_floatX(0.), beam_size);
     dV = tensor.alloc(np.int8(0.), beam_size);
-
+  
+    # Propogate the image feature vector
     [xW, h, c, _, _, _, _], _ = _stepP(Xi, h[:1,:], c[:1,:], lP, dV,aux_input) 
     
     xWStart = tparams['Wemb'][[0]]
     [xW, h, c, lP, dV, idx0, cand0], _ = _stepP(xWStart, h[:1,:], c[:1,:], lP, dV, aux_input) 
     
     aux_input = tensor.extra_ops.repeat(aux_input,beam_size,axis=0)
-    #xWStart = tensor.extra_ops.repeat(xWStart,beam_size,axis=0)
-    #xWStart = xWStart.reshape([1,beam_size,options['word_encoding_size']])
-
-    #h = tensor.alloc(numpy_floatX(0.),n_samples,hidden_size)
-    #c = tensor.alloc(numpy_floatX(0.),n_samples,hidden_size)
-
-	# Now lets do the loop.
+  
+    # Now lets do the loop.
     rval, updates = theano.scan(_stepP, outputs_info=[xW, h, c, lP, dV, None, None], non_sequences = [aux_input], name=_p(prefix, 'predict_layers'), n_steps=nMaxsteps)
-
+  
     return rval[3][-1], tensor.concatenate([idx0.reshape([1,beam_size]), rval[5]],axis=0), tensor.concatenate([cand0.reshape([1,beam_size]), rval[6]],axis=0)
   
 # ========================================================================================
@@ -487,3 +456,217 @@ class LSTMGenerator:
 
     return use_noise, inp_list, self.f_pred_prob_other, cost, p, updatesLSTM 
 
+# =================================== MULTI Model Ensemble Predictor related ==========================  
+  
+  def prepMultiPredictor(self, tparams, checkpoint_params, beam_size,nmodels):
+	# Now we build a predictor model
+    (inp_list, predLogProb, predIdx, predCand,rval) = self.build_multi_prediction_model(tparams, checkpoint_params, beam_size,nmodels)
+    self.f_multi_pred_th = theano.function(inp_list, [predLogProb, predIdx, predCand,rval], name='f_multi_pred')
+
+	# Now we build a training model which evaluates cost. This is for the evaluation part in the end
+    #(self.use_dropout, inp_list2,
+    # f_pred_prob, cost, predTh, updatesLSTM) = self.build_model(self.model_th, checkpoint_params)
+    #self.f_eval= theano.function(inp_list2, cost, name='f_multi_eval')
+
+  
+# ========================================================================================
+  def predictMulti(self, batch, checkpoint_params, **kwparams):
+
+    beam_size = kwparams.get('beam_size', 1)
+    nmodels = kwparams.get('nmodels', 1)
+
+    inp_list = []
+    for i in xrange(nmodels): 
+        inp_list.append(batch[i]['image']['feat'].reshape(1,checkpoint_params[i]['image_feat_size']).astype(config.floatX))
+    
+    for i in xrange(nmodels): 
+        if checkpoint_params[i].get('en_aux_inp',0):
+            inp_list.append(batch[i]['image']['aux_inp'].reshape(1,checkpoint_params[i]['aux_inp_size']).astype(config.floatX))
+
+    Ax = self.f_multi_pred_th(*inp_list)
+
+    Ys = []
+    for i in xrange(beam_size):
+        candI = []
+        curr_cand = Ax[2][-1][i]
+        for j in reversed(xrange(Ax[1].shape[0]-1)):
+            candI.insert(0,Ax[1][j][curr_cand])
+            curr_cand = Ax[2][j][curr_cand]
+
+        Ys.append([Ax[0][i], candI])
+    return [Ys]
+
+  def build_multi_prediction_model(self, tparams, options, beam_size,nmodels):
+
+    n_samples = 1
+    xI = []
+    xAux = []
+    embImg = []
+    for i in xrange(nmodels):
+        xI.append(tensor.matrix('xI_' + str(i), dtype=config.floatX))
+        xAux.append(tensor.matrix('xAux_'+str(i), dtype=config.floatX))
+        embImg.append((tensor.dot(xI[i], tparams[i]['WIemb']) + tparams[i]['b_Img']).reshape([n_samples,options[i]['image_encoding_size']]));
+
+    accLogProb, Idx, Cand,rval = self.lstm_multi_model_pred(tparams, embImg, xAux, options, beam_size, nmodels, prefix=options[0]['generator'])
+
+    inp_list = []
+    inp_list.extend(xI)
+    for i in xrange(nmodels):
+        if options[i].get('en_aux_inp',0):
+            inp_list.append(xAux[i])
+
+    return inp_list, accLogProb, Idx, Cand,rval 
+
+
+  def lstm_multi_model_pred(self,tparams, Xi, aux_input, options, beam_size, nmodels, prefix='lstm'):
+    nMaxsteps = 30 
+  
+    def _slice(_x, n, dim):
+        if _x.ndim == 3:
+            return _x[:, :, n * dim:(n + 1) * dim]
+        return _x[:, n * dim:(n + 1) * dim]
+  
+    # ----------------------  STEP FUNCTION  ---------------------- #
+    def _stepP(*in_list):
+        x_inp = []
+        h_inp = []
+        c_inp = []
+        for i in xrange(nmodels):
+            x_inp.append(in_list[i])
+            h_inp.append(in_list[nmodels+i])
+            c_inp.append(in_list[2*nmodels+i])
+        lP_ = in_list[3*nmodels]
+        dV_ = in_list[3*nmodels+1]
+
+        p_comb = tensor.alloc(numpy_floatX(0.), options[0]['output_size']);
+        cf = []
+        h = []
+        xW = []
+        for i in xrange(nmodels):
+            preact = tensor.dot(h_inp[i], tparams[i][_p(prefix, 'W_hid')])
+            preact += (tensor.dot(x_inp[i], tparams[i][_p(prefix, 'W_inp')]) +
+                       tparams[i][_p(prefix, 'b')])
+            if options[i].get('en_aux_inp',0):
+                preact += tensor.dot(aux_input2[i],tparams[i][_p(prefix,'W_aux')])
+  
+            inp = tensor.nnet.sigmoid(_slice(preact, 0, options[i]['hidden_size']))
+            f = tensor.nnet.sigmoid(_slice(preact, 1, options[i]['hidden_size']))
+            o = tensor.nnet.sigmoid(_slice(preact, 2, options[i]['hidden_size']))
+            c = tensor.tanh(_slice(preact, 3, options[i]['hidden_size']))
+  
+            cf.append(f * c_inp[i] + inp * c)
+  
+            h.append(o * tensor.tanh(cf[i]))
+            p = tensor.dot(h[i],tparams[i]['Wd']) + tparams[i]['bd']
+            if i == 0:
+                p_comb = tparams[i]['comb_weight']*tensor.nnet.softmax(p)
+            else:    
+                p_comb += tparams[i]['comb_weight']*tensor.nnet.softmax(p)
+        
+        lProb = tensor.log(p_comb + 1e-20)
+        def _FindB_best(lPLcl, lPprev, dVLcl):
+            srtLcl = tensor.argsort(-lPLcl)
+            srtLcl = srtLcl[:beam_size]
+            deltaVec = tensor.fill( lPLcl[srtLcl], numpy_floatX(-10000.))
+            deltaVec = tensor.set_subtensor(deltaVec[0], lPprev)
+            lProbBest = ifelse(tensor.eq( dVLcl, tensor.zeros_like(dVLcl)), lPLcl[srtLcl] + lPprev, deltaVec)
+            xWIdxBest = ifelse(tensor.eq( dVLcl, tensor.zeros_like(dVLcl)), srtLcl, tensor.zeros_like(srtLcl)) 
+            return lProbBest, xWIdxBest 
+  
+        rvalLcl, updatesLcl = theano.scan(_FindB_best, sequences = [lProb, lP_, dV_], name=_p(prefix, 'FindBest'), n_steps=x_inp[0].shape[0])
+        xWIdxBest = rvalLcl[1]
+        lProbBest = rvalLcl[0]
+  
+        xWIdxBest = xWIdxBest.flatten()
+        lProb = lProbBest.flatten()
+  
+        # Now sort and find the best among these best extensions for the current beams
+        srtIdx = tensor.argsort(-lProb)
+        srtIdx = srtIdx[:beam_size]
+        xWlogProb = lProb[srtIdx]
+  
+        xWIdx = xWIdxBest[srtIdx]
+        xCandIdx = srtIdx // beam_size # Floor division 
+  
+        doneVec = tensor.eq(xWIdx,tensor.zeros_like(xWIdx))
+        
+        x_out = []
+        h_out = []
+        c_out = []
+        for i in xrange(nmodels):
+            x_out.append(tparams[i]['Wemb'][xWIdx.flatten()])
+            h_out.append(h[i].take(xCandIdx.flatten(),axis=0))
+            c_out.append(cf[i].take(xCandIdx.flatten(),axis=0))
+
+        out_list = []
+        out_list.extend(x_out)
+        out_list.extend(h_out)
+        out_list.extend(c_out)
+        out_list.extend([xWlogProb, doneVec, xWIdx, xCandIdx])
+  
+        return out_list, theano.scan_module.until(doneVec.all())
+    # ------------------- END of STEP FUNCTION  -------------------- #
+    
+    #Xi = tensor.extra_ops.repeat(Xi,beam_size,axis=0)
+  
+    lP = tensor.alloc(numpy_floatX(0.), beam_size);
+    dV = tensor.alloc(np.int8(0.), beam_size);
+    
+    h_inp = []
+    c_inp = []
+    x_inp = []
+    for i in xrange(nmodels):
+      hidden_size = options[i]['hidden_size']
+      h = theano.shared(np.zeros((1,hidden_size),dtype='float32'))
+      c = theano.shared(np.zeros((1,hidden_size),dtype='float32'))
+      h_inp.append(h)
+      c_inp.append(c)
+      x_inp.append(Xi[i])
+    
+    aux_input2 = aux_input
+    
+    in_list = []
+    in_list.extend(x_inp); in_list.extend(h_inp); in_list.extend(c_inp) 
+    in_list.append(lP); in_list.append(dV) 
+
+    
+    # Propogate the image feature vector
+    out_list,_ = _stepP(*in_list) 
+
+    for i in xrange(nmodels):
+        h_inp[i] = out_list[nmodels + i]
+        c_inp[i] = out_list[2*nmodels + i]
+    
+    x_inp = []
+    for i in xrange(nmodels):
+      x_inp.append(tparams[i]['Wemb'][[0]])
+      h_inp[i] = h_inp[i][:1,:]
+      c_inp[i] = c_inp[i][:1,:]
+      #if options[i].get('en_aux_inp',0):
+      #  aux_input2.append(aux_input[i])
+    
+    in_list = []
+    in_list.extend(x_inp); in_list.extend(h_inp); in_list.extend(c_inp) 
+    in_list.append(lP); in_list.append(dV) 
+  
+    out_list, _ = _stepP(*in_list)
+    aux_input2 = []
+    for i in xrange(nmodels):
+        x_inp[i] = out_list[i]
+        h_inp[i] = out_list[nmodels + i]
+        c_inp[i] = out_list[2*nmodels + i]
+        aux_input2.append(tensor.extra_ops.repeat(aux_input[i],beam_size,axis=0))
+    lP = out_list[3*nmodels]
+    dV = out_list[3*nmodels+1]
+    idx0 = out_list[3*nmodels+2]
+    cand0 = out_list[3*nmodels+3]
+    
+    in_list = []
+    in_list.extend(x_inp); in_list.extend(h_inp); in_list.extend(c_inp) 
+    in_list.append(lP); in_list.append(dV)
+    in_list.append(None);in_list.append(None);
+    
+    # Now lets do the loop.
+    rval, updates = theano.scan(_stepP, outputs_info=in_list, name=_p(prefix, 'predict_layers'), n_steps=nMaxsteps)
+  
+    return rval[3*nmodels][-1], tensor.concatenate([idx0.reshape([1,beam_size]), rval[3*nmodels+2]],axis=0), tensor.concatenate([cand0.reshape([1,beam_size]), rval[3*nmodels+3]],axis=0), rval[3*nmodels] 

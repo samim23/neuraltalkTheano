@@ -114,4 +114,9 @@ def softmax(x,axis = -1):
     
     return p1
 
+def cosineSim(x,y):
+    n1 = np.sqrt(np.sum(x**2)) 
+    n2 = np.sqrt(np.sum(y**2)) 
+    sim = x.T.dot(y)/(n1*n2) if n1 !=0.0 and n2!= 0.0 else 0.0
+    return sim 
 	
