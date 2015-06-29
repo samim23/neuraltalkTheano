@@ -1,3 +1,12 @@
+########### Eval using coco toolkit ##########
+
+resDump = []
+for img in resMulti['imgblobs']:
+    imgid = int(img['img_path'].split('_')[-1].split('.')[0])
+    resDump.append({'image_id': imgid, 'caption':img['candidate']['text'].lstrip(' ').rstrip(' ')})
+
+
+#################################
 f = open('CandCommitteCocoMert.txt','w')
 scrs = evalSc['logProb_feat']
 cnt = 0

@@ -30,6 +30,16 @@ for i,sent in enumerate(dbTrn['annotations']):
         if w in wix:
             wordsIdList[t][w].add(sent['image_id'])
 
+i = 0
+sentTagMap = defaultdict(dict)
+for i,sent in enumerate(dbTrn['annotations']):
+    words = tSents[i].split()
+    i += 1
+    for wt in words:
+        w = wt.rsplit('_')[0].lower()
+        t = wt.rsplit('_')[1]
+        if w in wix:
+           sentTagMap[sent['id']][w] = t
 
 
 

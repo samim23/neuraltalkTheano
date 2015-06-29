@@ -6,7 +6,7 @@ import theano.tensor as tensor
 from theano.ifelse import ifelse
 from collections import OrderedDict
 import time
-from imagernn.utils import zipp, initwTh, numpy_floatX, _p
+from imagernn.utils import zipp, initwTh, numpy_floatX, _p, sliceT
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 class LSTMGenerator:
@@ -21,6 +21,7 @@ class LSTMGenerator:
     aux_inp_size = params.get('aux_inp_size', -1)
 
     hidden_size = params.get('hidden_size', 128)
+    hidden_depth = params.get('hidden_depth', 1)
     generator = params.get('generator', 'lstm')
     vocabulary_size = params.get('vocabulary_size',-1)
     output_size = params.get('output_size',-1)
@@ -36,6 +37,10 @@ class LSTMGenerator:
     model['lstm_W_hid'] = initwTh(hidden_size, 4 * hidden_size)
     model['lstm_W_inp'] = initwTh(image_encoding_size, 4 * hidden_size)
 
+    for i in xrange(1,hidden_depth):
+        model['lstm_W_hid_'+str(i)] = initwTh(hidden_size, 4 * hidden_size)
+        model['lstm_W_inp_'+str(i)] = initwTh(hidden_size, 4 * hidden_size)
+
     model['lstm_b'] = np.zeros((4 * hidden_size,)).astype(config.floatX)
     # Decoder weights (e.g. mapping to vocabulary)
     model['Wd'] = initwTh(hidden_size, output_size) # decoder
@@ -43,6 +48,12 @@ class LSTMGenerator:
 
     update_list = ['lstm_W_hid', 'lstm_W_inp', 'lstm_b', 'Wd', 'bd', 'WIemb', 'b_Img', 'Wemb']
     self.regularize = ['lstm_W_hid', 'lstm_W_inp', 'Wd', 'WIemb', 'Wemb' ]
+    
+    for i in xrange(1,hidden_depth):
+        update_list.append('lstm_W_hid_'+str(i))
+        update_list.append('lstm_W_hid_'+str(i))
+        self.regularize.append('lstm_W_inp_'+str(i))
+        self.regularize.append('lstm_W_inp_'+str(i))
 
     if params.get('en_aux_inp',0):
         model['lstm_W_aux'] = initwTh(aux_inp_size, 4 * hidden_size, 0.01)
@@ -140,9 +151,11 @@ class LSTMGenerator:
     rval, updatesLSTM = self.lstm_layer(tparams, emb[:n_timesteps,:,:], xAux, use_noise, options, prefix=options['generator'],
                                 mask=mask)
     if options['use_dropout']:
-        p = self.dropout_layer(rval[0], use_noise, trng, options['drop_prob_decoder'], (n_samples,options['hidden_size']))
+        p = self.dropout_layer(sliceT(rval[0],options.get('hidden_depth',1)-1,options['hidden_size']), use_noise, trng,
+            options['drop_prob_decoder'], (n_samples,options['hidden_size']))
     else:
-        p = rval[0]
+        p = sliceT(rval[0],options.get('hidden_depth',1)-1,options['hidden_size'])
+
 
     p = tensor.dot(p,tparams['Wd']) + tparams['bd']
 
@@ -153,7 +166,7 @@ class LSTMGenerator:
     #pred = pred[1:,:,:]
     p = p[1:,:,:]
 
-    def accumCost(pred,xW,m,c_sum,ppl_sum):
+    def accumCost(pred, xW, m, c_sum, ppl_sum):
         pred = tensor.nnet.softmax(pred)
         c_sum += -(tensor.log(pred[tensor.arange(n_samples), xW]+1e-10) * m).sum()
         ppl_sum += -(tensor.log2(pred[tensor.arange(n_samples), xW]+1e-10) * m).sum()
@@ -184,6 +197,9 @@ class LSTMGenerator:
   #LSTM LAYER DEFINITION 
   def lstm_layer(self, tparams, state_below, aux_input, use_noise, options, prefix='lstm', mask=None):
     nsteps = state_below.shape[0]
+    h_depth = options.get('hidden_depth',1)
+    h_sz = options['hidden_size']
+    
     if state_below.ndim == 3:
         n_samples = state_below.shape[1]
     else:
@@ -191,46 +207,45 @@ class LSTMGenerator:
 
     assert mask is not None
 
-    def _slice(_x, n, dim):
-        if _x.ndim == 3:
-            return _x[:, :, n * dim:(n + 1) * dim]
-        return _x[:, n * dim:(n + 1) * dim]
-
     def _step(m_, x_, h_, c_, xAux):
-        preact = tensor.dot(h_, tparams[_p(prefix, 'W_hid')])
+        preact = tensor.dot(sliceT(h_, 0, h_sz), tparams[_p(prefix, 'W_hid')])
         preact += x_
         if options.get('en_aux_inp',0):
             preact += tensor.dot(xAux,tparams[_p(prefix,'W_aux')])
 
         #  preact += tparams[_p(prefix, 'b')]
+        h = [[]]*h_depth 
+        c = [[]]*h_depth 
+        
+        for di in xrange(h_depth):
+            i = tensor.nnet.sigmoid(sliceT(preact, 0, h_sz))
+            f = tensor.nnet.sigmoid(sliceT(preact, 1, h_sz))
+            o = tensor.nnet.sigmoid(sliceT(preact, 2, h_sz))
+            c[di] = tensor.tanh(sliceT(preact, 3, h_sz))
+            c[di] = f * sliceT(c_, di, h_sz) + i * c[di]
+            h[di] = o * tensor.tanh(c[di])
+            if di < (h_depth - 1):
+                preact = tensor.dot(sliceT(h_, di+1, h_sz), tparams[_p(prefix, ('W_hid_' + str(di+1)))]) + \
+                        tensor.dot(h[di], tparams[_p(prefix, ('W_inp_' + str(di+1)))])
+        
+        c_out = tensor.concatenate(c,axis=1)
+        h_out = tensor.concatenate(h,axis=1)
 
-        i = tensor.nnet.sigmoid(_slice(preact, 0, options['hidden_size']))
-        f = tensor.nnet.sigmoid(_slice(preact, 1, options['hidden_size']))
-        o = tensor.nnet.sigmoid(_slice(preact, 2, options['hidden_size']))
-        c = tensor.tanh(_slice(preact, 3, options['hidden_size']))
+        return h_out, c_out
 
-        c = f * c_ + i * c
-        #c = m_[:, None] * c + (1. - m_)[:, None] * c_
-
-        h = o * tensor.tanh(c)
-
-        return h, c
-
-    state_below = (tensor.dot(state_below, tparams[_p(prefix, 'W_inp')]) +
-                       tparams[_p(prefix, 'b')])
+    state_below = (tensor.dot(state_below, tparams[_p(prefix, 'W_inp')]) + tparams[_p(prefix, 'b')])
     
     if options.get('en_aux_inp',0) == 0:
        aux_input = [] 
 
-    hidden_size = options['hidden_size']
     rval, updates = theano.scan(_step,
                                 sequences=[mask, state_below],
                                 outputs_info=[tensor.alloc(numpy_floatX(0.),
                                                            n_samples,
-                                                           hidden_size),
+                                                           h_depth*h_sz),
                                               tensor.alloc(numpy_floatX(0.),
                                                            n_samples,
-                                                           hidden_size),
+                                                           h_depth*h_sz),
                                               #tensor.alloc(numpy_floatX(0.),n_samples,options['output_size'])],
                                               ],
                                 non_sequences = [aux_input] ,
@@ -305,11 +320,6 @@ class LSTMGenerator:
     nMaxsteps = 30 
     n_samples = 1 
   
-    def _slice(_x, n, dim):
-        if _x.ndim == 3:
-            return _x[:, :, n * dim:(n + 1) * dim]
-        return _x[:, n * dim:(n + 1) * dim]
-  
     # ----------------------  STEP FUNCTION  ---------------------- #
     def _stepP(x_, h_, c_, lP_, dV_, xAux):
         preact = tensor.dot(h_, tparams[_p(prefix, 'W_hid')])
@@ -318,10 +328,10 @@ class LSTMGenerator:
         if options.get('en_aux_inp',0):
             preact += tensor.dot(xAux,tparams[_p(prefix,'W_aux')])
   
-        i = tensor.nnet.sigmoid(_slice(preact, 0, options['hidden_size']))
-        f = tensor.nnet.sigmoid(_slice(preact, 1, options['hidden_size']))
-        o = tensor.nnet.sigmoid(_slice(preact, 2, options['hidden_size']))
-        c = tensor.tanh(_slice(preact, 3, options['hidden_size']))
+        i = tensor.nnet.sigmoid(sliceT(preact, 0, options['hidden_size']))
+        f = tensor.nnet.sigmoid(sliceT(preact, 1, options['hidden_size']))
+        o = tensor.nnet.sigmoid(sliceT(preact, 2, options['hidden_size']))
+        c = tensor.tanh(sliceT(preact, 3, options['hidden_size']))
   
         c = f * c_ + i * c
   
@@ -521,11 +531,6 @@ class LSTMGenerator:
   def lstm_multi_model_pred(self,tparams, Xi, aux_input, options, beam_size, nmodels, prefix='lstm'):
     nMaxsteps = 30 
   
-    def _slice(_x, n, dim):
-        if _x.ndim == 3:
-            return _x[:, :, n * dim:(n + 1) * dim]
-        return _x[:, n * dim:(n + 1) * dim]
-  
     # ----------------------  STEP FUNCTION  ---------------------- #
     def _stepP(*in_list):
         x_inp = []
@@ -549,10 +554,10 @@ class LSTMGenerator:
             if options[i].get('en_aux_inp',0):
                 preact += tensor.dot(aux_input2[i],tparams[i][_p(prefix,'W_aux')])
   
-            inp = tensor.nnet.sigmoid(_slice(preact, 0, options[i]['hidden_size']))
-            f = tensor.nnet.sigmoid(_slice(preact, 1, options[i]['hidden_size']))
-            o = tensor.nnet.sigmoid(_slice(preact, 2, options[i]['hidden_size']))
-            c = tensor.tanh(_slice(preact, 3, options[i]['hidden_size']))
+            inp = tensor.nnet.sigmoid(sliceT(preact, 0, options[i]['hidden_size']))
+            f = tensor.nnet.sigmoid(sliceT(preact, 1, options[i]['hidden_size']))
+            o = tensor.nnet.sigmoid(sliceT(preact, 2, options[i]['hidden_size']))
+            c = tensor.tanh(sliceT(preact, 3, options[i]['hidden_size']))
   
             cf.append(f * c_inp[i] + inp * c)
   

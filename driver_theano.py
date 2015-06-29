@@ -16,6 +16,7 @@ from imagernn.imagernn_utils import decodeGenerator, eval_split_theano
 #from numbapro import cuda
 from imagernn.lstm_generatorTheano import LSTMGenerator
 from imagernn.utils import numpy_floatX, zipp, unzip
+from collections import defaultdict
 
 def preProBuildWordVocab(sentence_iterator, word_count_threshold):
   # count up all word counts so that we can threshold
@@ -137,6 +138,8 @@ def main(params):
   json_worker_status = {}
   json_worker_status['params'] = params
   json_worker_status['history'] = []
+
+  len_hist = defaultdict(int)
   
   ## Initialize the model parameters from the checkpoint file if we are resuming training
   if params['checkpoint_file_name'] != 'None':
@@ -148,8 +151,16 @@ def main(params):
   for it in xrange(max_iters):
     t0 = time.time()
     # fetch a batch of data
-    batch = [dp.sampleImageSentencePair() for i in xrange(batch_size)]
-    real_inp_list, lenS = prepare_data(batch,misc['wordtoix'])
+    if params['sample_by_len'] == 0:
+        batch = [dp.sampleImageSentencePair() for i in xrange(batch_size)]
+    else: 
+        batch,l = dp.getRandBatchByLen(batch_size)
+        len_hist[l] += 1
+
+    if params['use_pos_tag'] != 'None':
+        real_inp_list, lenS = prepare_data(batch,misc['wordtoix'],None,sentTagMap,misc['ixtoword'])
+    else:    
+        real_inp_list, lenS = prepare_data(batch,misc['wordtoix'])
     
     # Enable using dropout in training 
     use_dropout.set_value(1.)
@@ -172,7 +183,7 @@ def main(params):
     tnow = time.time()
     if tnow > last_status_write_time + 60*1: # every now and then lets write a report
       print '%d/%d batch done in %.3fs. at epoch %.2f. Cost now is %.3f and pplx is %.3f' % (it, max_iters, dt, \
-		epoch, total_cost, train_ppl2)
+		epoch, total_cost, smooth_train_ppl2)
       last_status_write_time = tnow
       jstatus = {}
       jstatus['time'] = datetime.datetime.now().isoformat()
@@ -198,7 +209,16 @@ def main(params):
       use_dropout.set_value(0.)
 
       val_ppl2 = eval_split_theano('val', dp, model, params, misc,f_eval) # perform the evaluation on VAL set
-      print 'validation perplexity = %f' % (val_ppl2, )
+      
+      if epoch - params['lr_decay_st_epoch'] >= 0:
+        params['learning_rate'] = params['learning_rate'] * params['lr_decay']
+        params['lr_decay_st_epoch'] += 1
+      
+      print 'validation perplexity = %f, lr = %f' % (val_ppl2, params['learning_rate'])
+      if params['sample_by_len'] == 1:
+        print len_hist
+
+        
       write_checkpoint_ppl_threshold = params['write_checkpoint_ppl_threshold']
       if val_ppl2 < top_val_ppl2 or top_val_ppl2 < 0:
         if val_ppl2 < write_checkpoint_ppl_threshold or write_checkpoint_ppl_threshold < 0:
@@ -238,6 +258,7 @@ if __name__ == "__main__":
   parser.add_argument('--worker_status_output_directory', dest='worker_status_output_directory', type=str, default='status/', help='directory to write worker status JSON blobs to')
   parser.add_argument('--write_checkpoint_ppl_threshold', dest='write_checkpoint_ppl_threshold', type=float, default=-1, help='ppl threshold above which we dont bother writing a checkpoint to save space')
   parser.add_argument('--continue_training', dest='checkpoint_file_name', type=str, default='None', help='checkpoint file from which to resume training')
+  parser.add_argument('--use_pos_tag', dest='use_pos_tag', type=str, default='None', help='use_pos_tag')
 
   # Some parameters about image features used
   parser.add_argument('--feature_file', dest='feature_file', type=str, default='vgg_feats.mat', help='Which file should we use for read the CNN features')
@@ -250,6 +271,7 @@ if __name__ == "__main__":
   parser.add_argument('--image_encoding_size', dest='image_encoding_size', type=int, default=512, help='size of the image encoding')
   parser.add_argument('--word_encoding_size', dest='word_encoding_size', type=int, default=512, help='size of word encoding')
   parser.add_argument('--hidden_size', dest='hidden_size', type=int, default=512, help='size of hidden layer in generator RNNs')
+  parser.add_argument('--hidden_depth', dest='hidden_depth', type=int, default=1, help='depth of hidden layer in generator RNNs')
   parser.add_argument('--generator', dest='generator', type=str, default='lstm', help='generator to use')
   parser.add_argument('-c', '--regc', dest='regc', type=float, default=1e-8, help='regularization strength')
   parser.add_argument('--tanhC_version', dest='tanhC_version', type=int, default=0, help='use tanh version of LSTM?')
@@ -262,10 +284,14 @@ if __name__ == "__main__":
   parser.add_argument('--smooth_eps', dest='smooth_eps', type=float, default=1e-8, help='epsilon smoothing for rmsprop/adagrad/adadelta')
   parser.add_argument('-l', '--learning_rate', dest='learning_rate', type=float, default=1e-3, help='solver learning rate')
   parser.add_argument('-b', '--batch_size', dest='batch_size', type=int, default=100, help='batch size')
+  parser.add_argument('--sample_by_len', dest='sample_by_len', type=int, default=0, help='enable sampling by length of sentece to speed up training')
   parser.add_argument('--grad_clip', dest='grad_clip', type=float, default=5, help='clip gradients (normalized by batch size)? elementwise. if positive, at what threshold?')
   parser.add_argument('--drop_prob_encoder', dest='drop_prob_encoder', type=np.float32, default=0.5, help='what dropout to apply right after the encoder to an RNN/LSTM')
   parser.add_argument('--drop_prob_decoder', dest='drop_prob_decoder', type=np.float32, default=0.5, help='what dropout to apply right before the decoder in an RNN/LSTM')
   parser.add_argument('--drop_prob_aux', dest='drop_prob_aux', type=np.float32, default=0.5, help='what dropout to apply for the auxillary inputs to lstm')
+  
+  parser.add_argument('--lr_decay', dest='lr_decay', type=float, default=1.0, help='solver learning rate')
+  parser.add_argument('--lr_decay_st_epoch', dest='lr_decay_st_epoch', type=float, default=100.0, help='solver learning rate')
 
   # data preprocessing parameters
   parser.add_argument('--word_count_threshold', dest='word_count_threshold', type=int, default=5, help='if a word occurs less than this number of times in training data, it is discarded')
@@ -288,7 +314,9 @@ if __name__ == "__main__":
     params['en_aux_inp'] = 1
   else:
     params['en_aux_inp'] = 0
-    
+  
+  if params['use_pos_tag'] != 'None':
+    sentTagMap = pickle.load(open(params['use_pos_tag'],'r'))  
   print 'parsed parameters:'
   print json.dumps(params, indent = 2)
   config.mode = 'FAST_RUN'

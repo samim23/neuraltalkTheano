@@ -93,7 +93,24 @@ class BasicDataProvider:
       self.split[img['split']].append(img)
       if img['split'] != 'train':
         self.split['allval'].append(img)
+    
+    # Build tables for length based sampling
+    lenHist = defaultdict(int)
+    self.lenMap = defaultdict(list)
+    if(dataset == 'coco'):
+        self.min_len = 7
+        self.max_len = 27
+        for iid, img in enumerate(self.split['train']): 
+          for sid, sent in enumerate(img['sentences']):
+            ix = max(min(len(sent['tokens']),self.max_len),self.min_len)
+            lenHist[ix] += 1
+            self.lenMap[ix].append((iid,sid))
+    else:
+        raise ValueError('ERROR: Dont know how to do len splitting for this dataset')
 
+    self.lenCdist = np.cumsum(lenHist.values())
+
+    
   # "PRIVATE" FUNCTIONS
   # in future we may want to create copies here so that we don't touch the 
   # data provider class data, but for now lets do the simple thing and 
@@ -140,6 +157,30 @@ class BasicDataProvider:
     out['image'] = self._getImage(img)
     out['sentence'] = self._getSentence(sent)
     return out
+  
+  def sampleImageSentencePairByLen(self, l, split='train'):
+    """ sample image sentence pair from a split """
+    pair = random.choice(self.lenMap[l])
+
+    img = self.split[split][pair[0]]
+    sent = img['sentences'][pair[1]]
+
+    out = {}
+    out['image'] = self._getImage(img)
+    out['sentence'] = self._getSentence(sent)
+    return out
+  
+  def getRandBatchByLen(self,batch_size):
+    """ sample image sentence pair from a split """
+    
+    rn = np.random.randint(0,self.lenCdist[-1])
+    for l in xrange(len(self.lenCdist)):
+        if rn < self.lenCdist[l]:
+            break
+
+    l += self.min_len
+    batch = [self.sampleImageSentencePairByLen(l) for i in xrange(batch_size)]
+    return batch,l
 
   def iterImageSentencePair(self, split = 'train', max_images = -1):
     for i,img in enumerate(self.split[split]):
@@ -180,7 +221,7 @@ class BasicDataProvider:
     for i in ix:
       yield self._getImage(imglist[i])
   
-def prepare_data( batch, wordtoix, maxlen=None):
+def prepare_data( batch, wordtoix, maxlen=None,sentTagMap=None,ixw = None):
     """Create the matrices from the datasets.
 
     This pad each sequence to the same length: the lenght of the
@@ -224,6 +265,11 @@ def prepare_data( batch, wordtoix, maxlen=None):
     for idx, s in enumerate(seqs):
         xW[:lengths[idx], idx] = s
         x_mask[:lengths[idx], idx] = 1.
+        if sentTagMap != None:
+            for i,sw in enumerate(s):
+                if sentTagMap[batch[idx]['sentence']['sentid']].get(ixw[sw],'') == 'JJ':
+                    x_mask[i,idx] = 2 
+                
 
     inp_list = [xW, xI, x_mask]
 

@@ -119,4 +119,9 @@ def cosineSim(x,y):
     n2 = np.sqrt(np.sum(y**2)) 
     sim = x.T.dot(y)/(n1*n2) if n1 !=0.0 and n2!= 0.0 else 0.0
     return sim 
-	
+
+
+def sliceT(_x, n, dim):
+    if _x.ndim == 3:
+        return _x[:, :, n * dim:(n + 1) * dim]
+    return _x[:, n * dim:(n + 1) * dim]
